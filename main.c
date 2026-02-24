@@ -275,7 +275,7 @@ int main(int argc, char **argv)
 	execute(META | SPEC | 'C', FALSE, 1);
 	lastflag = saveflag;
 
-	if (!typahead())
+	if (curwp->w_flag || !typahead())
 		update(FALSE);
 	c = getcmd();
 
