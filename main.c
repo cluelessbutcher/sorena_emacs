@@ -1,67 +1,15 @@
-/*
- *	main.c
-
- *	uEmacs/PK 4.0
- *
- *	Based on:
- *
- *	MicroEMACS 3.9
- *	Written by Dave G. Conroy.
- *	Substantially modified by Daniel M. Lawrence
- *	Modified by Petri Kutvonen
- *
- *	MicroEMACS 3.9 (c) Copyright 1987 by Daniel M. Lawrence
- *
- *	Original statement of copying policy:
- *
- *	MicroEMACS 3.9 can be copied and distributed freely for any
- *	non-commercial purposes. MicroEMACS 3.9 can only be incorporated
- *	into commercial software with the permission of the current author.
- *
- *	No copyright claimed for modifications made by Petri Kutvonen.
- *
- *	This file contains the main driving routine, and some keyboard
- *	processing code.
- *
- * REVISION HISTORY:
- *
- * 1.0  Steve Wilhite, 30-Nov-85
- *
- * 2.0  George Jones, 12-Dec-85
- *
- * 3.0  Daniel Lawrence, 29-Dec-85
- *
- * 3.2-3.6 Daniel Lawrence, Feb...Apr-86
- *
- * 3.7	Daniel Lawrence, 14-May-86
- *
- * 3.8	Daniel Lawrence, 18-Jan-87
- *
- * 3.9	Daniel Lawrence, 16-Jul-87
- *
- * 3.9e	Daniel Lawrence, 16-Nov-87
- *
- * After that versions 3.X and Daniel Lawrence went their own ways.
- * A modified 3.9e/PK was heavily used at the University of Helsinki
- * for several years on different UNIX, VMS, and MSDOS platforms.
- *
- * This modified version is now called uEmacs/PK.
- *
- * 4.0	Petri Kutvonen, 1-Sep-91
- *
- */
-
 #include <stdio.h>
 
-/* Make global definitions not external. */
 #define	maindef
 
-#include "estruct.h"				/* Global structures and defines. */
-#include "globals.h"				/* Global definitions. */
-#include "efunc.h"				/* Function declarations and name table. */
-#include "ebind.h"				/* Default key bindings. */
+#include "estruct.h"
+#include "globals.h"
+#include "efunc.h"
+#include "ebind.h"
 #include "version.h"
 #include "util.h"
+#include "utf8.h"
+#include "line.h"
 
 #include <signal.h>
 static void emergencyexit(int);
@@ -69,44 +17,104 @@ extern void sizesignal(int);
 
 void usage(int status)
 {
-	printf("Usage: %s filename\n", PROGRAM_NAME);
-	printf("   or: %s [options]\n\n", PROGRAM_NAME);
-	fputs("      +          start at the end of file\n", stdout);
-	fputs("      +<n>       start at line <n>\n", stdout);
-	fputs("      -g[G]<n>   go to line <n>\n", stdout);
-	fputs("      --help     display this help and exit\n", stdout);
-	fputs("      --version  output version information and exit\n", stdout);
+	printf("Usage: %s [options] [file ...]\n\n", PROGRAM_NAME);
+	fputs("      +<n>        start at line <n>\n", stdout);
+	fputs("      -g<n>       go to line <n>\n", stdout);
+	fputs("      -s<text>    search for <text> at startup\n", stdout);
+	fputs("      -v          open files read-only (view mode)\n", stdout);
+	fputs("      -e          open files for editing (default)\n", stdout);
+	fputs("      -n          accept NUL characters in files\n", stdout);
+	fputs("      -r          restricted mode (no shell, no file switching)\n", stdout);
+	fputs("      @<file>     run <file> as the startup file\n", stdout);
+	fputs("      --help      display this help and exit\n", stdout);
+	fputs("      --version   output version information and exit\n\n", stdout);
+	fputs("Inside the editor press C-h ? (or F1) for help, C-h b for all key bindings.\n", stdout);
 
 	exit(status);
 }
 
+static int is_motion(fn_t fn)
+{
+	static const fn_t motions[] = {
+		cmd_forward_character, cmd_backward_character, cmd_next_line, cmd_previous_line,
+		cmd_beginning_of_line, cmd_end_of_line, cmd_next_word, cmd_previous_word,
+		cmd_next_page, cmd_previous_page, cmd_beginning_of_file, cmd_end_of_file,
+		cmd_next_paragraph, cmd_previous_paragraph, cmd_smart_home, cmd_back_to_indentation,
+		cmd_forward_sexp, cmd_backward_sexp, cmd_beginning_of_defun, cmd_end_of_defun,
+		cmd_goto_bracket, cmd_goto_matching_fence, NULL
+	};
+	int i;
+
+	for (i = 0; motions[i]; i++)
+		if (motions[i] == fn)
+			return TRUE;
+	return FALSE;
+}
+
+static int do_paste(void)
+{
+	int c, prev = 0, view = (curbp->b_mode & MDVIEW) != 0;
+	char *buf = NULL;
+	long len = 0, cap = 0;
+
+	while ((c = paste_read_char()) >= 0) {
+		char u[8];
+		int n;
+		if (view || c == 0)
+			continue;
+		if (c == '\n' && prev == '\r') {
+			prev = c;
+			continue;
+		}
+		prev = c;
+		if (c == '\r')
+			c = '\n';
+		n = unicode_to_utf8(c, u);
+		if (len + n > cap) {
+			char *nb;
+			cap = cap ? cap * 2 : 4096;
+			nb = realloc(buf, cap);
+			if (nb == NULL)
+				break;
+			buf = nb;
+		}
+		memcpy(buf + len, u, n);
+		len += n;
+	}
+	if (view) {
+		free(buf);
+		return readonly_error();
+	}
+	if (region_active)
+		delete_active_region();
+	if (len > 0)
+		insert_bytes(buf, len);
+	free(buf);
+	return TRUE;
+}
+
 int main(int argc, char **argv)
 {
-	int c = -1;				/* command character */
-	int f;					/* default flag */
-	int n;					/* numeric repeat count */
-	int mflag;				/* negative flag on repeat */
-	struct buffer *bp;			/* temp buffer pointer */
-	int firstfile;				/* first file flag */
-	int carg;				/* current arg to scan */
-	int startflag;				/* startup executed flag */
-	struct buffer *firstbp = NULL;		/* ptr to first buffer in cmd line */
-	int basec;				/* c stripped of meta character */
-	int viewflag;				/* are we starting in view mode? */
-	int gotoflag;				/* do we need to goto a line at start? */
-	int gline = 0;				/* if so, what line? */
-	int searchflag;				/* Do we need to search at start? */
-	int saveflag;				/* temp store for lastflag */
-	int errflag;				/* C error processing? */
-	char bname[NBUFN];			/* buffer name of file to read */
+	int c = -1;
+	int f;
+	int n;
+	int mflag;
+	struct buffer *bp;
+	int firstfile;
+	int carg;
+	int startflag;
+	struct buffer *firstbp = NULL;
+	int basec;
+	int viewflag;
+	int gotoflag;
+	int gline = 0;
+	int searchflag;
+	int saveflag;
+	int errflag;
+	char bname[NBUFN];
 
 	spell_init();
 
-	/*
-	 * Deliberately not SA_RESTART: a resize has to interrupt the
-	 * read() the editor spends its life in, or nothing acts on it
-	 * until the next keystroke.
-	 */
 	struct sigaction winch = { .sa_handler = sizesignal };
 	sigemptyset(&winch.sa_mask);
 	sigaction(SIGWINCH, &winch, NULL);
@@ -120,78 +128,65 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* Initialize the editor. */
-	display_open();				/* Display */
-	edinit("main");				/* Buffers, windows */
-	varinit();				/* user variables */
+	display_open();
+	edinit("*scratch*");
+	varinit();
 
-	viewflag = FALSE;			/* view mode defaults off in command line */
-	gotoflag = FALSE;			/* set to off to begin with */
-	searchflag = FALSE;			/* set to off to begin with */
-	firstfile = TRUE;			/* no file to edit yet */
-	startflag = FALSE;			/* startup file not executed yet */
-	errflag = FALSE;			/* not doing C error parsing */
+	viewflag = FALSE;
+	gotoflag = FALSE;
+	searchflag = FALSE;
+	firstfile = TRUE;
+	startflag = FALSE;
+	errflag = FALSE;
 
-	/* Parse the command line */
 	for (carg = 1; carg < argc; ++carg) {
-		/* Process Switches */
 		if (argv[carg][0] == '+') {
 			gotoflag = TRUE;
 			gline = atoi(&argv[carg][1]);
 		} else if (argv[carg][0] == '-') {
 			switch (argv[carg][1]) {
-				/* Process Startup macroes */
-			case 'a':		/* process error file */
+			case 'a':
 			case 'A':
 				errflag = TRUE;
 				break;
-			case 'e':		/* -e for Edit file */
+			case 'e':
 			case 'E':
 				viewflag = FALSE;
 				break;
-			case 'g':		/* -g for initial goto */
+			case 'g':
 			case 'G':
 				gotoflag = TRUE;
 				gline = atoi(&argv[carg][2]);
 				break;
-			case 'n':		/* -n accept null chars */
+			case 'n':
 			case 'N':
 				accept_nulls = TRUE;
 				break;
-			case 'r':		/* -r restrictive use */
+			case 'r':
 			case 'R':
 				restflag = TRUE;
 				break;
-			case 's':		/* -s for initial search string */
+			case 's':
 			case 'S':
 				searchflag = TRUE;
 				strncpy(search_pattern, &argv[carg][2], NPAT);
 				break;
-			case 'v':		/* -v for View File */
+			case 'v':
 			case 'V':
 				viewflag = TRUE;
 				break;
-			default:		/* unknown switch */
-				/* ignore this for now */
+			default:
+
 				break;
 			}
-
 		} else if (argv[carg][0] == '@') {
-
-			/* Process Startup macroes */
 			if (startup(&argv[carg][1]) == TRUE)
-				/* don't execute emacs.rc */
+
 				startflag = TRUE;
-
 		} else {
-
-			/* Process an input file */
-
-			/* set up a buffer for this file */
 			makename(bname, argv[carg]);
 			unique_buffer_name(bname);
 
-			/* set this to inactive */
 			bp = find_buffer(bname, TRUE, 0);
 			strcpy(bp->b_fname, argv[carg]);
 			bp->b_active = FALSE;
@@ -200,7 +195,6 @@ int main(int argc, char **argv)
 				firstfile = FALSE;
 			}
 
-			/* set the modes appropriatly */
 			if (viewflag)
 				bp->b_mode |= MDVIEW;
 		}
@@ -209,29 +203,24 @@ int main(int argc, char **argv)
 	signal(SIGHUP, emergencyexit);
 	signal(SIGTERM, emergencyexit);
 
-	/* if we are C error parsing... run it! */
 	if (errflag) {
 		if (startup("error.cmd") == TRUE)
 			startflag = TRUE;
 	}
 
-	/* if invoked with no other startup files,
-	   run the system startup file here */
 	if (startflag == FALSE) {
 		startup("");
 		startflag = TRUE;
 	}
-	display_commands = TRUE;				/* P.K. */
+	display_commands = TRUE;
 
-	/* if there are any files to read, read the first one! */
-	bp = find_buffer("main", FALSE, 0);
+	bp = find_buffer("*scratch*", FALSE, 0);
 	if (firstfile == FALSE && (global_flags & GFREAD)) {
 		swbuffer(firstbp);
 		destroy_buffer(bp);
 	} else
 		bp->b_mode |= global_mode;
 
-	/* Deal with startup gotos and searches */
 	if (gotoflag && searchflag) {
 		update();
 		msg_printf("(Can not search and goto at the same time!)");
@@ -245,20 +234,20 @@ int main(int argc, char **argv)
 			update();
 	}
 
-	/* Setup to process commands. */
-	lastflag = 0;				/* Fake last flags. */
+	lastflag = 0;
 
  loop:
-	/* Execute the "command" macro...normally null. */
-	saveflag = lastflag;			/* Preserve lastflag through this. */
-	execute(META | SPEC | 'C', FALSE, 1);
+
+	saveflag = lastflag;
+	execute(HOOK_CMD, FALSE, 1);
 	lastflag = saveflag;
 
 	if (curwp->w_flag || !typahead())
 		update();
 	c = getcmd();
+	if (c == 0)
+		goto loop;
 
-	/* if there is something on the command line, clear it */
 	if (message_present != FALSE) {
 		msg_erase();
 		update();
@@ -266,39 +255,34 @@ int main(int argc, char **argv)
 	f = FALSE;
 	n = 1;
 
-	/* do META-# processing if needed */
-
-	basec = c & ~META;			/* strip meta char off if there */
+	basec = c & ~META;
 	if ((c & META) && ((basec >= '0' && basec <= '9') || basec == '-')) {
-		f = TRUE;			/* there is a # arg */
-		n = 0;				/* start with a zero default */
-		mflag = 1;			/* current minus flag */
-		c = basec;			/* strip the META */
+		f = TRUE;
+		n = 0;
+		mflag = 1;
+		c = basec;
 		while ((c >= '0' && c <= '9') || (c == '-')) {
 			if (c == '-') {
-				/* already hit a minus or digit? */
 				if ((mflag == -1) || (n != 0))
 					break;
 				mflag = -1;
 			} else {
 				n = n * 10 + (c - '0');
 			}
-			if ((n == 0) && (mflag == -1))	/* lonely - */
+			if ((n == 0) && (mflag == -1))
 				msg_printf("Arg:");
 			else
 				msg_printf("Arg: %d", n * mflag);
 
-			c = getcmd();		/* get the next key */
+			c = getcmd();
 		}
-		n = n * mflag;			/* figure in the sign */
+		n = n * mflag;
 	}
 
-	/* do ^U repeat argument processing */
-
-	if (c == repeat_key) {			/* ^U, start argument   */
+	if (c == repeat_key) {
 		f = TRUE;
-		n = 4;				/* with argument of 4 */
-		mflag = 0;			/* that can be discarded. */
+		n = 4;
+		mflag = 0;
 		msg_printf("Arg: 4");
 		while (((c = getcmd()) >= '0' && c <= '9') || c == repeat_key || c == '-') {
 			if (c == repeat_key)
@@ -306,20 +290,14 @@ int main(int argc, char **argv)
 					n = n * 4;
 				else
 					n = 1;
-			/*
-			 * If dash, and start of argument string, set arg.
-			 * to -1.  Otherwise, insert it.
-			 */
+
 			else if (c == '-') {
 				if (mflag)
 					break;
 				n = 0;
 				mflag = -1;
 			}
-			/*
-			 * If first digit entered, replace previous argument
-			 * with digit and set sign.  Otherwise, append to arg.
-			 */
+
 			else {
 				if (!mflag) {
 					n = 0;
@@ -329,10 +307,7 @@ int main(int argc, char **argv)
 			}
 			msg_printf("Arg: %d", (mflag >= 0) ? n : (n ? -n : -1));
 		}
-		/*
-		 * Make arguments preceded by a minus sign negative and change
-		 * the special argument "^U -" to an effective "^U -1".
-		 */
+
 		if (mflag == -1) {
 			if (n == 0)
 				n++;
@@ -340,54 +315,74 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* and execute the command */
-	execute(c, f, n);
+	{
+		static int last_selfins = FALSE;
+		static int coalesce = 0;
+		fn_t bound = getbind(c);
+		int selfins = bound == NULL && !f && ((c >= 0x20 && c <= 0x7E) || (c >= 0xA0 && c <= 0x10FFFF));
+		struct window *owp = curwp;
+		struct buffer *obp = curbp;
+
+		if (!(selfins && last_selfins && coalesce < 20 && c != ' ')) {
+			undo_boundary();
+			coalesce = 0;
+		}
+		if (selfins)
+			coalesce++;
+		last_selfins = selfins;
+		undo_cmd_lp = curwp->w_dotp;
+		undo_cmd_off = curwp->w_doto;
+		undo_cmd_bp = curbp;
+		buffer_was_modified = FALSE;
+
+		execute(c, f, n);
+
+		undo_cmd_bp = NULL;
+		undo_cmd_lp = NULL;
+		if (region_active) {
+			if (curwp != owp || curbp != obp || curwp->w_markp == NULL)
+				region_active = FALSE;
+			else if (buffer_was_modified && !(lastflag & CFKEEPR))
+				region_active = FALSE;
+			else if (region_shift && !(c & SHIFT) && bound != NULL && is_motion(bound))
+				region_active = FALSE;
+		}
+		if (!region_active)
+			region_shift = FALSE;
+	}
 	goto loop;
 }
 
-/*
- * Initialize all of the buffers and windows. The buffer name is passed down
- * as an argument, because the main routine may have been told to read in a
- * file by default, and we want the buffer name to be right.
- */
 void edinit(char *bname)
 {
 	struct buffer *bp;
 	struct window *wp;
 
-	bp = find_buffer(bname, TRUE, 0);		/* First buffer         */
-	list_buffer = find_buffer("*List*", TRUE, BFINVS);	/* Buffer list buffer   */
-	wp = (struct window *)malloc(sizeof(struct window));	/* First window         */
+	bp = find_buffer(bname, TRUE, 0);
+	list_buffer = find_buffer("*List*", TRUE, BFINVS);
+	wp = (struct window *)malloc(sizeof(struct window));
 	if (bp == NULL || wp == NULL || list_buffer == NULL)
 		exit(1);
-	curbp = bp;				/* Make this current    */
+	curbp = bp;
 	window_head = wp;
 	curwp = wp;
-	wp->w_wndp = NULL;			/* Initialize window    */
+	wp->w_wndp = NULL;
 	wp->w_bufp = bp;
-	bp->b_nwnd = 1;				/* Displayed.           */
+	bp->b_nwnd = 1;
 	wp->w_linep = bp->b_linep;
 	wp->w_dotp = bp->b_linep;
 	wp->w_doto = 0;
 	wp->w_markp = NULL;
 	wp->w_marko = 0;
 	wp->w_toprow = 0;
-	wp->w_ntrows = term.t_nrow - 1;		/* "-1" for the mode line */
+	wp->w_ntrows = term.t_nrow - 1;
 	wp->w_force = 0;
-	wp->w_flag = WFMODE | WFHARD;		/* Full.                */
+	wp->w_flag = WFMODE | WFHARD;
 }
 
-/*
- * Save the buffer because it is time to, rather than because anybody
- * asked.  cmd_save_file() asks before overwriting a file that changed
- * under us and before writing one that was truncated on the way in, and
- * a question here would arrive in the middle of somebody typing and eat
- * the keystroke that answered it.  So the cases it would ask about are
- * the cases this declines to write, and says why on the message line.
- */
 static void autosave(void)
 {
-	if (curbp->b_mode & MDVIEW)		/* nothing to save */
+	if (curbp->b_mode & MDVIEW)
 		return;
 	if (curbp->b_fname[0] == 0) {
 		msg_printf("(No file name, not autosaving)");
@@ -405,18 +400,11 @@ static void autosave(void)
 	cmd_save_file(FALSE, 0);
 }
 
-/*
- * This is the general command execution routine. It handles the fake binding
- * of all the keys to "self-insert". It also clears out the "thisflag" word,
- * and arranges to move it to the "lastflag", so that the next command can
- * look at it. Return the status of command.
- */
 int execute(int c, int f, int n)
 {
 	int status;
 	fn_t execfunc;
 
-	/* if the keystroke is a bound function...do it */
 	execfunc = getbind(c);
 	if (execfunc != NULL) {
 		thisflag = 0;
@@ -425,44 +413,50 @@ int execute(int c, int f, int n)
 		return status;
 	}
 
-	/*
-	 * If a space was typed, fill column is defined, the argument is non-
-	 * negative, wrap mode is enabled, and we are now past fill column,
-	 * and we are not read-only, perform word wrap.
-	 */
+	if (c & SHIFT) {
+		fn_t base = getbind(c & ~SHIFT);
+		if (base != NULL && is_motion(base)) {
+			if (!region_active || curwp->w_markp == NULL) {
+				curwp->w_markp = curwp->w_dotp;
+				curwp->w_marko = curwp->w_doto;
+				region_active = TRUE;
+				region_shift = TRUE;
+			}
+			thisflag = 0;
+			status = (*base) (f, n);
+			thisflag |= CFKEEPR;
+			lastflag = thisflag;
+			return status;
+		}
+		if (base != NULL) {
+			thisflag = 0;
+			status = (*base) (f, n);
+			lastflag = thisflag;
+			return status;
+		}
+	}
+
+	if (c == (SPEC | '~')) {
+		thisflag = 0;
+		status = do_paste();
+		lastflag = thisflag;
+		return status;
+	}
+
 	if (c == ' ' && (curwp->w_bufp->b_mode & MDWRAP) && fill_column > 0 &&
 	    n >= 0 && getccol(FALSE) > fill_column && (curwp->w_bufp->b_mode & MDVIEW) == FALSE)
-		execute(META | SPEC | 'W', FALSE, 1);
+		execute(HOOK_WRAP, FALSE, 1);
 
-	if ((c >= 0x20 && c <= 0x7E)		/* Self inserting.      */
+	if ((c >= 0x20 && c <= 0x7E)
 	    ||(c >= 0xA0 && c <= 0x10FFFF)) {
-		if (n <= 0) {			/* Fenceposts.          */
+		if (n <= 0) {
 			lastflag = 0;
 			return n < 0 ? FALSE : TRUE;
 		}
-		thisflag = 0;			/* For the future.      */
+		thisflag = 0;
 
-		/* if we are in overwrite mode, not at eol,
-		   and next char is not a tab or we are at a tab stop,
-		   delete a char forword                        */
-		if (curwp->w_bufp->b_mode & MDOVER &&
-		    curwp->w_doto < curwp->w_dotp->l_used &&
-		    (lgetc(curwp->w_dotp, curwp->w_doto) != '\t' || (curwp->w_doto) % 8 == 7))
-			delete_characters(1, FALSE);
+		status = self_insert(c, n);
 
-		/* do the appropriate insertion */
-		if (c == '}' && (curbp->b_mode & MDCMOD) != 0)
-			status = insbrace(n, c);
-		else if (c == '#' && (curbp->b_mode & MDCMOD) != 0)
-			status = inspound();
-		else
-			status = insert_char(n, c);
-
-		/* check for CMODE fence matching */
-		if ((c == '}' || c == ')' || c == ']') && (curbp->b_mode & MDCMOD) != 0)
-			fmatch(c);
-
-		/* check auto-save mode */
 		if (curbp->b_mode & MDASAVE)
 			if (--autosave_countdown == 0) {
 				autosave();
@@ -473,39 +467,40 @@ int execute(int c, int f, int n)
 		return status;
 	}
 	tcapbeep();
-	msg_printf("(Key not bound)");		/* complain             */
-	lastflag = 0;				/* Fake last flags.     */
+	msg_printf("(Key not bound)");
+	lastflag = 0;
 	return FALSE;
 }
 
-/*
- * Fancy quit command, as implemented by Norm. If the any buffer has
- * changed do a write on that buffer and exit emacs, otherwise simply exit.
- */
 int cmd_quick_exit(int f, int n)
 {
-	struct buffer *bp;			/* scanning pointer to buffers */
-	struct buffer *oldcb;			/* original current buffer */
+	struct buffer *bp;
+	struct buffer *oldcb;
 	int status;
 
-	oldcb = curbp;				/* save in case we fail */
+	oldcb = curbp;
 
 	bp = buffer_head;
 	while (bp != NULL) {
-		if ((bp->b_flag & BFCHG) != 0	/* Changed.             */
-		    && (bp->b_flag & BFTRUNC) == 0	/* Not truncated P.K.   */
-		    && (bp->b_flag & BFINVS) == 0) {	/* Real.                */
-			curbp = bp;		/* make that buffer cur */
+		if ((bp->b_flag & BFCHG) != 0
+		    && (bp->b_flag & BFTRUNC) == 0
+		    && (bp->b_flag & BFINVS) == 0) {
+			curbp = bp;
 			msg_printf("(Saving %s)", bp->b_fname);
 			if ((status = cmd_save_file(f, n)) != TRUE) {
-				curbp = oldcb;	/* restore curbp */
+				curbp = oldcb;
 				return status;
 			}
 		}
-		bp = bp->b_bufp;		/* on to the next buffer */
+		bp = bp->b_bufp;
 	}
-	cmd_exit_emacs(f, n);				/* conditionally quit   */
+	cmd_exit_emacs(f, n);
 	return TRUE;
+}
+
+void emergency_exit(int signr)
+{
+	emergencyexit(signr);
 }
 
 static void emergencyexit(int signr)
@@ -514,17 +509,13 @@ static void emergencyexit(int signr)
 	cmd_exit_emacs(TRUE, 0);
 }
 
-/*
- * Quit command. If an argument, always quit. Otherwise confirm if a buffer
- * has been changed and not written out. Normally bound to "C-X C-C".
- */
 int cmd_exit_emacs(int f, int n)
 {
 	int s;
 
-	if (f != FALSE				/* Argument forces it.  */
-	    || any_changed_buffers() == FALSE			/* All buffers clean.   */
-	    /* User says it's OK.   */
+	if (f != FALSE
+	    || any_changed_buffers() == FALSE
+
 	    || (s = ask_yesno("Modified buffers exist. Leave anyway")) == TRUE) {
 		display_close();
 		if (f)
@@ -536,11 +527,6 @@ int cmd_exit_emacs(int f, int n)
 	return s;
 }
 
-/*
- * Begin a keyboard macro.
- * Error if not at the top level in keyboard processing. Set up variables and
- * return.
- */
 int cmd_begin_macro(int f, int n)
 {
 	if (keyboard_macro_mode != STOP) {
@@ -554,10 +540,6 @@ int cmd_begin_macro(int f, int n)
 	return TRUE;
 }
 
-/*
- * End keyboard macro. Check for the same limit conditions as the above
- * routine. Set up the variables and return to the caller.
- */
 int cmd_end_macro(int f, int n)
 {
 	if (keyboard_macro_mode == STOP) {
@@ -571,11 +553,6 @@ int cmd_end_macro(int f, int n)
 	return TRUE;
 }
 
-/*
- * Execute a macro.
- * The command argument is the number of times to loop. Quit as soon as a
- * command gets an error. Return TRUE if all ok, else FALSE.
- */
 int cmd_execute_macro(int f, int n)
 {
 	if (keyboard_macro_mode != STOP) {
@@ -584,29 +561,22 @@ int cmd_execute_macro(int f, int n)
 	}
 	if (n <= 0)
 		return TRUE;
-	keyboard_macro_repeat = n;				/* remember how many times to execute */
-	keyboard_macro_mode = PLAY;				/* start us in play mode */
-	keyboard_macro_pos = &keyboard_macro[0];			/*    at the beginning */
+	keyboard_macro_repeat = n;
+	keyboard_macro_mode = PLAY;
+	keyboard_macro_pos = &keyboard_macro[0];
 	return TRUE;
 }
 
-/*
- * Abort.
- * Beep the beeper. Kill off any keyboard macro, etc., that is in progress.
- * Sometimes called as a routine, to do general aborting of stuff.
- */
 int cmd_abort_command(int f, int n)
 {
 	tcapbeep();
 	keyboard_macro_mode = STOP;
-	msg_printf("(Aborted)");
+	region_active = FALSE;
+	region_shift = FALSE;
+	msg_printf("Quit");
 	return ABORT;
 }
 
-/*
- * tell the user that this command is illegal while we are in
- * VIEW (read-only) mode
- */
 int readonly_error(void)
 {
 	tcapbeep();
@@ -621,25 +591,26 @@ int restricted_error(void)
 	return FALSE;
 }
 
-/* user function that does NOTHING */
 int cmd_nop(int f, int n)
 {
 	return TRUE;
 }
 
-/* dummy function for binding to meta prefix */
 int cmd_meta_prefix(int f, int n)
 {
 	return TRUE;
 }
 
-/* dummy function for binding to control-x prefix */
+int cmd_ctlc_prefix(int f, int n)
+{
+	return TRUE;
+}
+
 int cmd_ctlx_prefix(int f, int n)
 {
 	return TRUE;
 }
 
-/* dummy function for binding to universal-argument */
 int cmd_universal_argument(int f, int n)
 {
 	return TRUE;

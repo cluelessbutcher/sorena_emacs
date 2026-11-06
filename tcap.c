@@ -1,16 +1,4 @@
-/*	tcap.c
- *
- *	Unix V7 SysV and BS4 Termcap video driver
- *
- *	modified by Petri Kutvonen
- */
-
-/*
- * Defining this to 1 breaks tcapopen() - it doesn't check if the
- * sceen size has changed.
- *	-lbt
- */
-#define	termdef	1				/* Don't define "term" external. */
+#define	termdef	1
 
 #include <curses.h>
 #include <stdio.h>
@@ -24,7 +12,7 @@
 
 #define	MARGIN	8
 #define	SCRSIZ	64
-#define	NPAUSE	2				/* Pause in 0.1 seconds */
+#define	NPAUSE	2
 #define BEL     0x07
 #define ESC     0x1B
 
@@ -47,7 +35,7 @@ static char *UP, PC, *CM, *CE, *CL, *SO, *SE;
 static char *TI, *TE;
 
 struct terminal term = {
-	0,					/* These four values are set dynamically at open time. */
+	0,
 	0,
 	0,
 	0,
@@ -75,7 +63,6 @@ void tcapopen(void)
 		exit(1);
 	}
 
-	/* Get screen size from system, or else from termcap.  */
 	getscreensize(&int_col, &int_row);
 	term.t_nrow = int_row - 1;
 	term.t_ncol = int_col;
@@ -109,12 +96,12 @@ void tcapopen(void)
 	if (SO != NULL)
 		can_reverse_video = TRUE;
 
-	if (tgetnum("sg") > 0) {		/* can reverse be used? P.K. */
+	if (tgetnum("sg") > 0) {
 		can_reverse_video = FALSE;
 		SE = NULL;
 		SO = NULL;
 	}
-	TI = tgetstr("ti", &p);			/* terminal init and exit */
+	TI = tgetstr("ti", &p);
 	TE = tgetstr("te", &p);
 
 	if (CL == NULL || CM == NULL || UP == NULL) {
@@ -122,7 +109,7 @@ void tcapopen(void)
 		exit(1);
 	}
 
-	if (CE == NULL)				/* will we be able to use clear to EOL? */
+	if (CE == NULL)
 		can_erase_to_eol = FALSE;
 
 	if (p >= &tcapbuf[TCAPSLEN]) {
@@ -134,6 +121,7 @@ void tcapopen(void)
 
 void tcapclose(void)
 {
+	fputs("\033[?2004l", stdout);
 	putpad(tgoto(CM, 0, term.t_nrow));
 	putpad(TE);
 	ttflush();
@@ -143,6 +131,7 @@ void tcapclose(void)
 void tcapkopen(void)
 {
 	putpad(TI);
+	fputs("\033[?2004h", stdout);
 	ttflush();
 	shown_row = 999;
 	shown_col = 999;
@@ -151,6 +140,7 @@ void tcapkopen(void)
 
 void tcapkclose(void)
 {
+	fputs("\033[?2004l", stdout);
 	putpad(TE);
 	ttflush();
 }
@@ -170,11 +160,6 @@ void tcapeeop(void)
 	putpad(CL);
 }
 
-/*
- * Change reverse video status
- *
- * @state: FALSE = normal video, TRUE = reverse video.
- */
 void tcaprev(int state)
 {
 	if (state) {
@@ -191,5 +176,6 @@ void tcapbeep(void)
 
 static void putpad(char *str)
 {
-	tputs(str, 1, ttputc);
+	if (str != NULL)
+		tputs(str, 1, ttputc);
 }

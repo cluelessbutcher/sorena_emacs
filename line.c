@@ -1,18 +1,3 @@
-/*	line.c
- *
- * The functions in this file are a general set of line management utilities.
- * They are the only routines that touch the text. They also touch the buffer
- * and window structures, to make sure that the necessary updating gets done.
- * There are routines in this file that handle the kill buffer too. It isn't
- * here for any good reason.
- *
- * Note that this code only updates the dot and mark values in the window list.
- * Since all the code acts on the current window, the buffer that we are
- * editing must be being displayed, which means that "b_nwnd" is non zero,
- * which means that the dot and mark values in the buffer headers are nonsense.
- *
- */
-
 #include "line.h"
 
 #include <stdio.h>
@@ -22,37 +7,26 @@
 #include "efunc.h"
 #include "utf8.h"
 
-#define	BLOCK_SIZE 16				/* Line block chunk size. */
+#define	BLOCK_SIZE 16
 
-/*
- * This routine allocates a block of memory large enough to hold a struct line
- * containing "used" characters. The block is always rounded up a bit. Return
- * a pointer to the new block, or NULL if there isn't any memory left. Print a
- * message in the message line if no space.
- */
 struct line *line_alloc(int used)
 {
 	struct line *lp;
 	int size;
 
 	size = (used + BLOCK_SIZE - 1) & ~(BLOCK_SIZE - 1);
-	if (size == 0)				/* Assume that is an empty. */
-		size = BLOCK_SIZE;		/* Line is for type-in. */
+	if (size == 0)
+		size = BLOCK_SIZE;
 	if ((lp = (struct line *)malloc(sizeof(struct line) + size)) == NULL) {
 		msg_printf("(OUT OF MEMORY)");
 		return NULL;
 	}
 	lp->l_size = size;
 	lp->l_used = used;
+	line_gen++;
 	return lp;
 }
 
-/*
- * Delete line "lp". Fix all of the links that might point at it (they are
- * moved to offset 0 of the next line. Unlink the line from whatever buffer it
- * might be in. Release the memory. The buffers are updated too; the magic
- * conditions described in the above comments don't hold here.
- */
 void line_free(struct line *lp)
 {
 	struct buffer *bp;
@@ -90,23 +64,18 @@ void line_free(struct line *lp)
 	lp->l_bp->l_fp = lp->l_fp;
 	lp->l_fp->l_bp = lp->l_bp;
 	free((char *)lp);
+	line_gen++;
 }
 
-/*
- * This routine gets called when a character is changed in place in the current
- * buffer. It updates all of the required flags in the buffer and window
- * system. The flag used is passed as an argument; if the buffer is being
- * displayed in more than 1 window we change EDIT t HARD. Set MODE if the
- * mode line needs to be updated (the "*" has to be set).
- */
 void buffer_changed(int flag)
 {
 	struct window *wp;
 
-	if (curbp->b_nwnd != 1)			/* Ensure hard.     */
+	buffer_was_modified = TRUE;
+	if (curbp->b_nwnd != 1)
 		flag = WFHARD;
-	if ((curbp->b_flag & BFCHG) == 0) {	/* First change, so     */
-		flag |= WFMODE;			/* update mode lines.   */
+	if ((curbp->b_flag & BFCHG) == 0) {
+		flag |= WFMODE;
 		curbp->b_flag |= BFCHG;
 	}
 	wp = window_head;
@@ -117,21 +86,12 @@ void buffer_changed(int flag)
 	}
 }
 
-/*
- * insert spaces forward into text
- *
- * int f, n;		default flag and numeric argument
- */
 int cmd_insert_space(int f, int n)
 {
 	insert_char(n, ' ');
 	cmd_backward_character(f, n);
 	return TRUE;
 }
-
-/*
- * insert_string -- Insert a string at the current point
- */
 
 int insert_string(char *instr)
 {
@@ -142,7 +102,6 @@ int insert_string(char *instr)
 		while ((tmpc = *instr) && status == TRUE) {
 			status = (tmpc == '\n' ? insert_newline() : insert_char(1, tmpc));
 
-			/* Insertion error? */
 			if (status != TRUE) {
 				msg_printf("%%Out of memory while inserting");
 				break;
@@ -152,17 +111,9 @@ int insert_string(char *instr)
 	return status;
 }
 
-/*
- * Insert "n" copies of the character "c" at the current location of dot. In
- * the easy case all that happens is the text is stored in the line. In the
- * hard case, the line has to be reallocated. When the window list is updated,
- * take special care; I screwed it up once. You always update dot in the
- * current window. You update mark, and a dot in another window, if it is
- * greater than the place where you did the insert. Return TRUE if all is
- * well, and FALSE on errors.
- */
+static long hint_line = -1;
 
-static int insert_byte(int n, int c)
+static int insert_mem(const char *src, int n, int c)
 {
 	struct line *lp1;
 	struct line *lp2;
@@ -170,29 +121,46 @@ static int insert_byte(int n, int c)
 	int doto;
 	struct window *wp;
 
-	if (curbp->b_mode & MDVIEW)		/* don't allow this command if      */
-		return readonly_error();		/* we are in read only mode     */
+	if (curbp->b_mode & MDVIEW)
+		return readonly_error();
 	buffer_changed(WFEDIT);
-	lp1 = curwp->w_dotp;			/* Current line         */
-	if (lp1 == curbp->b_linep) {		/* At the end: special  */
+	lp1 = curwp->w_dotp;
+	if (lp1 == curbp->b_linep) {
+		long ln;
 		if (curwp->w_doto != 0) {
 			msg_printf("bug: insert_char");
 			return FALSE;
 		}
-		if ((lp2 = line_alloc(n)) == NULL)	/* Allocate new line        */
+		ln = src ? undo_record_insert_buf(lp1, 0, src, n) : undo_record_insert_fill(lp1, 0, c, n);
+		if ((lp2 = line_alloc(n)) == NULL)
 			return FALSE;
-		lp3 = lp1->l_bp;		/* Previous line        */
-		lp3->l_fp = lp2;		/* Link in              */
+		lp3 = lp1->l_bp;
+		lp3->l_fp = lp2;
 		lp2->l_fp = lp1;
 		lp1->l_bp = lp2;
 		lp2->l_bp = lp3;
-		memset(lp2->l_text, c, n);
+		if (src)
+			memcpy(lp2->l_text, src, n);
+		else
+			memset(lp2->l_text, c, n);
 		curwp->w_dotp = lp2;
 		curwp->w_doto = n;
+		for (wp = window_head; wp != NULL; wp = wp->w_wndp)
+			if (wp != curwp && wp->w_bufp == curbp && wp->w_dotp == lp1 && wp->w_linep == lp1)
+				wp->w_linep = lp2;
+		if (ln >= 0)
+			line_number_hint(lp2, ln);
 		return TRUE;
 	}
-	doto = curwp->w_doto;			/* Save for later.      */
-	if (lp1->l_used + n > lp1->l_size) {	/* Hard: reallocate     */
+	doto = curwp->w_doto;
+	{
+		long ln = src ? undo_record_insert_buf(lp1, doto, src, n) : undo_record_insert_fill(lp1, doto, c, n);
+		if (ln >= 0)
+			hint_line = ln;
+		else
+			hint_line = -1;
+	}
+	if (lp1->l_used + n > lp1->l_size) {
 		if ((lp2 = line_alloc(lp1->l_used + n)) == NULL)
 			return FALSE;
 		memcpy(lp2->l_text, lp1->l_text, doto);
@@ -203,14 +171,18 @@ static int insert_byte(int n, int c)
 		lp1->l_fp->l_bp = lp2;
 		lp2->l_bp = lp1->l_bp;
 		free((char *)lp1);
-	} else {				/* Easy: in place       */
-		lp2 = lp1;			/* Pretend new line     */
+		line_gen++;
+	} else {
+		lp2 = lp1;
 		lp2->l_used += n;
 		memmove(lp1->l_text + doto + n, lp1->l_text + doto,
 			lp1->l_used - doto - n);
 	}
-	memset(lp2->l_text + doto, c, n);	/* Add the characters       */
-	wp = window_head;			/* Update windows       */
+	if (src)
+		memcpy(lp2->l_text + doto, src, n);
+	else
+		memset(lp2->l_text + doto, c, n);
+	wp = window_head;
 	while (wp != NULL) {
 		if (wp->w_linep == lp1)
 			wp->w_linep = lp2;
@@ -225,7 +197,14 @@ static int insert_byte(int n, int c)
 		}
 		wp = wp->w_wndp;
 	}
+	if (hint_line >= 0)
+		line_number_hint(lp2, hint_line);
 	return TRUE;
+}
+
+int insert_byte(int n, int c)
+{
+	return insert_mem(NULL, n, c);
 }
 
 int insert_char(int n, int c)
@@ -246,11 +225,6 @@ int insert_char(int n, int c)
 	return TRUE;
 }
 
-/*
- * Overwrite a character into the current line at the current position
- *
- * int c;	character to overwrite on current position
- */
 int overwrite_char(int c)
 {
 	if (curwp->w_doto < curwp->w_dotp->l_used &&
@@ -259,9 +233,6 @@ int overwrite_char(int c)
 	return insert_char(1, c);
 }
 
-/*
- * overwrite_string -- Overwrite a string at the current point
- */
 int overwrite_string(char *ostr)
 {
 	int status = TRUE;
@@ -271,7 +242,6 @@ int overwrite_string(char *ostr)
 		while ((tmpc = *ostr) && status == TRUE) {
 			status = (tmpc == '\n' ? insert_newline() : overwrite_char(tmpc));
 
-			/* Insertion error? */
 			if (status != TRUE) {
 				msg_printf("%%Out of memory while overwriting");
 				break;
@@ -281,14 +251,6 @@ int overwrite_string(char *ostr)
 	return status;
 }
 
-/*
- * Insert a newline into the buffer at the current location of dot in the
- * current window. The funny ass-backwards way it does things is not a botch;
- * it just makes the last line in the file not a special case. Return TRUE if
- * everything works out and FALSE on error (memory allocation failure). The
- * update of dot and mark is a bit easier then in the above case, because the
- * split forces more updating.
- */
 int insert_newline(void)
 {
 	char *cp1;
@@ -298,14 +260,18 @@ int insert_newline(void)
 	int doto;
 	struct window *wp;
 
-	if (curbp->b_mode & MDVIEW)		/* don't allow this command if      */
-		return readonly_error();		/* we are in read only mode     */
+	if (curbp->b_mode & MDVIEW)
+		return readonly_error();
 	buffer_changed(WFHARD);
-	lp1 = curwp->w_dotp;			/* Get the address and  */
-	doto = curwp->w_doto;			/* offset of "."        */
-	if ((lp2 = line_alloc(doto)) == NULL)	/* New first half line      */
+	lp1 = curwp->w_dotp;
+	doto = curwp->w_doto;
+	{
+		long ln = undo_record_insert(lp1, doto, "\n", 1);
+		hint_line = ln;
+	}
+	if ((lp2 = line_alloc(doto)) == NULL)
 		return FALSE;
-	cp1 = &lp1->l_text[0];			/* Shuffle text around  */
+	cp1 = &lp1->l_text[0];
 	cp2 = &lp2->l_text[0];
 	while (cp1 != &lp1->l_text[doto])
 		*cp2++ = *cp1++;
@@ -317,7 +283,7 @@ int insert_newline(void)
 	lp1->l_bp = lp2;
 	lp2->l_bp->l_fp = lp2;
 	lp2->l_fp = lp1;
-	wp = window_head;			/* Windows              */
+	wp = window_head;
 	while (wp != NULL) {
 		if (wp->w_linep == lp1)
 			wp->w_linep = lp2;
@@ -335,6 +301,8 @@ int insert_newline(void)
 		}
 		wp = wp->w_wndp;
 	}
+	if (hint_line >= 0)
+		line_number_hint(lp1, hint_line + 1);
 	return TRUE;
 }
 
@@ -345,12 +313,6 @@ int char_at_dot(unicode_t *c)
 	return utf8_to_unicode(buf, curwp->w_doto, len, c);
 }
 
-/*
- * delete_bytes() is what to reach for when the count came from scanning
- * the text - "scan 5 words forwards, and remove the bytes we scanned"
- * is a byte count.  This one is for when you have a number of
- * characters, and works out how many bytes each of them is.
- */
 int delete_characters(long n, int kflag)
 {
 	while (n-- > 0) {
@@ -361,15 +323,6 @@ int delete_characters(long n, int kflag)
 	return TRUE;
 }
 
-/*
- * This function deletes "n" bytes, starting at dot. It understands how do deal
- * with end of lines, etc. It returns TRUE if all of the characters were
- * deleted, and FALSE if they were not (because dot ran into the end of the
- * buffer. The "kflag" is TRUE if the text should be put in the kill buffer.
- *
- * long n;		# of chars to delete
- * int kflag;		 put killed text in kill buffer flag
- */
 int delete_bytes(long n, int kflag)
 {
 	char *cp1;
@@ -379,17 +332,17 @@ int delete_bytes(long n, int kflag)
 	int chunk;
 	struct window *wp;
 
-	if (curbp->b_mode & MDVIEW)		/* don't allow this command if      */
-		return readonly_error();		/* we are in read only mode     */
+	if (curbp->b_mode & MDVIEW)
+		return readonly_error();
 	while (n != 0) {
 		dotp = curwp->w_dotp;
 		doto = curwp->w_doto;
-		if (dotp == curbp->b_linep)	/* Hit end of buffer.       */
+		if (dotp == curbp->b_linep)
 			return FALSE;
-		chunk = dotp->l_used - doto;	/* Size of chunk.       */
+		chunk = dotp->l_used - doto;
 		if (chunk > n)
 			chunk = n;
-		if (chunk == 0) {		/* End of line, merge.  */
+		if (chunk == 0) {
 			buffer_changed(WFHARD);
 			if (delete_newline() == FALSE || (kflag != FALSE && kinsert('\n') == FALSE))
 				return FALSE;
@@ -397,9 +350,14 @@ int delete_bytes(long n, int kflag)
 			continue;
 		}
 		buffer_changed(WFEDIT);
-		cp1 = &dotp->l_text[doto];	/* Scrunch text.        */
+		{
+			long ln = undo_record_delete(dotp, doto, &dotp->l_text[doto], chunk);
+			if (ln >= 0)
+				line_number_hint(dotp, ln);
+		}
+		cp1 = &dotp->l_text[doto];
 		cp2 = cp1 + chunk;
-		if (kflag != FALSE) {		/* Kill?                */
+		if (kflag != FALSE) {
 			while (cp1 != cp2) {
 				if (kinsert(*cp1) == FALSE)
 					return FALSE;
@@ -410,7 +368,7 @@ int delete_bytes(long n, int kflag)
 		while (cp2 != &dotp->l_text[dotp->l_used])
 			*cp1++ = *cp2++;
 		dotp->l_used -= chunk;
-		wp = window_head;		/* Fix windows          */
+		wp = window_head;
 		while (wp != NULL) {
 			if (wp->w_dotp == dotp && wp->w_doto >= doto) {
 				wp->w_doto -= chunk;
@@ -429,26 +387,20 @@ int delete_bytes(long n, int kflag)
 	return TRUE;
 }
 
-/*
- * getctext:	grab and return a string with the text of
- *		the current line
- */
 char *getctext(void)
 {
-	struct line *lp;			/* line to copy */
-	int size;				/* length of line to return */
-	char *sp;				/* string pointer into line */
-	char *dp;				/* string pointer into returned line */
-	static char rline[NSTRING];		/* line to return */
+	struct line *lp;
+	int size;
+	char *sp;
+	char *dp;
+	static char rline[NSTRING];
 
-	/* find the contents of the current line and its length */
 	lp = curwp->w_dotp;
 	sp = lp->l_text;
 	size = lp->l_used;
 	if (size >= NSTRING)
 		size = NSTRING - 1;
 
-	/* copy it across */
 	dp = rline;
 	while (size--)
 		*dp++ = *sp++;
@@ -456,22 +408,14 @@ char *getctext(void)
 	return rline;
 }
 
-/*
- * putctext:
- *	replace the current line with the passed in text
- *
- * char *iline;			contents of new line
- */
 int putctext(char *iline)
 {
 	int status;
 
-	/* delete the current line */
-	curwp->w_doto = 0;			/* starting at the beginning of the line */
+	curwp->w_doto = 0;
 	if ((status = cmd_kill_to_end_of_line(TRUE, 1)) != TRUE)
 		return status;
 
-	/* insert the new line */
 	if ((status = insert_string(iline)) != TRUE)
 		return status;
 	status = insert_newline();
@@ -479,15 +423,6 @@ int putctext(char *iline)
 	return status;
 }
 
-/*
- * Delete a newline. Join the current line with the next line. If the next line
- * is the magic header line always return TRUE; merging the last line with the
- * header line can be thought of as always being a successful operation, even
- * if nothing is done, and this makes the kill buffer work "right". Easy cases
- * can be done by shuffling data around. Hard cases require that lines be moved
- * about in memory. Return FALSE on error and TRUE if all looks ok. Called by
- * "delete_bytes" only.
- */
 int delete_newline(void)
 {
 	char *cp1;
@@ -497,14 +432,20 @@ int delete_newline(void)
 	struct line *lp3;
 	struct window *wp;
 
-	if (curbp->b_mode & MDVIEW)		/* don't allow this command if      */
-		return readonly_error();		/* we are in read only mode     */
+	if (curbp->b_mode & MDVIEW)
+		return readonly_error();
 	lp1 = curwp->w_dotp;
 	lp2 = lp1->l_fp;
-	if (lp2 == curbp->b_linep) {		/* At the buffer end.   */
-		if (lp1->l_used == 0)		/* Blank line.              */
+	if (lp2 == curbp->b_linep) {
+		if (lp1->l_used == 0) {
+			undo_record_delete(lp1, 0, "\n", 1);
 			line_free(lp1);
+		}
 		return TRUE;
+	}
+	{
+		long ln = undo_record_delete(lp1, lp1->l_used, "\n", 1);
+		hint_line = ln;
 	}
 	if (lp2->l_used <= lp1->l_size - lp1->l_used) {
 		cp1 = &lp1->l_text[lp1->l_used];
@@ -529,6 +470,9 @@ int delete_newline(void)
 		lp1->l_fp = lp2->l_fp;
 		lp2->l_fp->l_bp = lp1;
 		free((char *)lp2);
+		line_gen++;
+		if (hint_line >= 0)
+			line_number_hint(lp1, hint_line);
 		return TRUE;
 	}
 	if ((lp3 = line_alloc(lp1->l_used + lp2->l_used)) == NULL)
@@ -564,21 +508,19 @@ int delete_newline(void)
 	}
 	free((char *)lp1);
 	free((char *)lp2);
+	line_gen++;
+	if (hint_line >= 0)
+		line_number_hint(lp3, hint_line);
 	return TRUE;
 }
 
-/*
- * Delete all of the text saved in the kill buffer. Called by commands when a
- * new kill context is being created. The kill buffer array is released, just
- * in case the buffer has grown to immense size. No errors.
- */
 void kdelete(void)
 {
-	struct kill *kp;			/* ptr to scan kill buffer chunk list */
+	struct kill *kp;
 
 	if (kill_head != NULL) {
+		kill_ring_push();
 
-		/* first, delete all the chunks */
 		kill_last = kill_head;
 		while (kill_last != NULL) {
 			kp = kill_last->d_next;
@@ -586,61 +528,55 @@ void kdelete(void)
 			kill_last = kp;
 		}
 
-		/* and reset all the kill buffer pointers */
 		kill_head = kill_last = NULL;
 		kill_used = KBLOCK;
 	}
 }
 
-/*
- * Insert a character to the kill buffer, allocating new chunks as needed.
- * Return TRUE if all is well, and FALSE on errors.
- *
- * int c;			character to insert in the kill buffer
- */
 int kinsert(int c)
 {
-	struct kill *nchunk;			/* ptr to newly malloced chunk */
+	struct kill *nchunk;
 
-	/* check to see if we need a new chunk */
 	if (kill_used >= KBLOCK) {
 		if ((nchunk = (struct kill *)malloc(sizeof(struct kill))) == NULL)
 			return FALSE;
-		if (kill_head == NULL)		/* set head ptr if first time */
+		if (kill_head == NULL)
 			kill_head = nchunk;
-		if (kill_last != NULL)		/* point the current to this new one */
+		if (kill_last != NULL)
 			kill_last->d_next = nchunk;
 		kill_last = nchunk;
 		kill_last->d_next = NULL;
 		kill_used = 0;
 	}
 
-	/* and now insert the character */
 	kill_last->d_chunk[kill_used++] = c;
 	return TRUE;
 }
 
-/*
- * Yank text back from the kill buffer. This is really easy. All of the work
- * is done by the standard insert routines. All you do is run the loop, and
- * check for errors. Bound to "C-Y".
- */
 int cmd_yank(int f, int n)
 {
 	int c;
 	int i;
-	char *sp;				/* pointer into string to insert */
-	struct kill *kp;			/* pointer into kill buffer */
+	char *sp;
+	struct kill *kp;
 
-	if (curbp->b_mode & MDVIEW)		/* don't allow this command if      */
-		return readonly_error();		/* we are in read only mode     */
+	long sl;
+	int so;
+	long total = 0;
+
+	if (curbp->b_mode & MDVIEW)
+		return readonly_error();
 	if (n < 0)
 		return FALSE;
-	/* make sure there is something to yank */
-	if (kill_head == NULL)
-		return TRUE;			/* not an error, just nothing */
+	if (region_active)
+		delete_active_region();
 
-	/* for each time.... */
+	if (kill_head == NULL)
+		return TRUE;
+
+	sl = line_number(curwp->w_dotp);
+	so = curwp->w_doto;
+
 	while (n--) {
 		kp = kill_head;
 		while (kp != NULL) {
@@ -649,17 +585,176 @@ int cmd_yank(int f, int n)
 			else
 				i = KBLOCK;
 			sp = kp->d_chunk;
-			while (i--) {
-				if ((c = *sp++) == '\n') {
-					if (insert_newline() == FALSE)
-						return FALSE;
-				} else {
-					if (insert_byte(1, c) == FALSE)
-						return FALSE;
-				}
-			}
+			total += i;
+			if (insert_bytes(sp, i) != TRUE)
+				return FALSE;
+			(void)c;
 			kp = kp->d_next;
 		}
 	}
+	curwp->w_markp = line_at(sl);
+	curwp->w_marko = so > line_length(curwp->w_markp) ? line_length(curwp->w_markp) : so;
+	yank_noted(total);
+	thisflag |= CFYANK;
 	return TRUE;
+}
+
+#define LCACHE 4
+static struct {
+	struct buffer *bp;
+	struct line *lp;
+	long n;
+	unsigned long gen;
+} lcache[LCACHE];
+static int lcache_next;
+
+void line_number_hint(struct line *lp, long n)
+{
+	int i;
+
+	for (i = 0; i < LCACHE; i++)
+		if (lcache[i].bp == curbp && lcache[i].lp == lp) {
+			lcache[i].n = n;
+			lcache[i].gen = line_gen;
+			return;
+		}
+	lcache[lcache_next].bp = curbp;
+	lcache[lcache_next].lp = lp;
+	lcache[lcache_next].n = n;
+	lcache[lcache_next].gen = line_gen;
+	lcache_next = (lcache_next + 1) % LCACHE;
+}
+
+void line_number_flush(void)
+{
+	int i;
+
+	for (i = 0; i < LCACHE; i++)
+		lcache[i].bp = NULL;
+}
+
+long buffer_line_number(struct buffer *bp, struct line *lp)
+{
+	struct line *hdr = bp->b_linep;
+	struct line *f, *b, *p;
+	long nf, nb, n;
+	int i, best = -1;
+
+	for (i = 0; i < LCACHE; i++) {
+		if (lcache[i].bp != bp || lcache[i].gen != line_gen)
+			continue;
+		if (lcache[i].lp == lp)
+			return lcache[i].n;
+		if (best < 0)
+			best = i;
+	}
+	if (best >= 0) {
+		f = b = lcache[best].lp;
+		nf = nb = lcache[best].n;
+		int bstop = 0;
+		for (i = 0; i < 8192; i++) {
+			int moved = 0;
+			if (f != hdr) {
+				f = f->l_fp;
+				nf++;
+				moved = 1;
+				if (f == lp) {
+					n = nf;
+					goto found;
+				}
+			}
+			if (!bstop) {
+				p = b->l_bp;
+				if (p == hdr)
+					bstop = 1;
+				else {
+					b = p;
+					nb--;
+					moved = 1;
+					if (b == lp) {
+						n = nb;
+						goto found;
+					}
+				}
+			}
+			if (!moved)
+				break;
+		}
+	}
+	n = 0;
+	p = hdr->l_fp;
+	while (p != lp && p != hdr) {
+		p = p->l_fp;
+		n++;
+	}
+found:
+	lcache[lcache_next].bp = bp;
+	lcache[lcache_next].lp = lp;
+	lcache[lcache_next].n = n;
+	lcache[lcache_next].gen = line_gen;
+	lcache_next = (lcache_next + 1) % LCACHE;
+	return n;
+}
+
+long line_number(struct line *lp)
+{
+	return buffer_line_number(curbp, lp);
+}
+
+int line_put_byte(struct line *lp, int off, int c)
+{
+	char nb = c;
+
+	if (lgetc(lp, off) == (c & 0xFF))
+		return TRUE;
+	undo_record_replace(lp, off, &lp->l_text[off], &nb, 1);
+	lputc(lp, off, c);
+	buffer_changed(WFHARD);
+	return TRUE;
+}
+
+int insert_bytes(const char *s, int len)
+{
+	int i, start = 0;
+
+	for (i = 0; i <= len; i++) {
+		if (i == len || s[i] == '\n') {
+			if (i > start && insert_mem(s + start, i - start, 0) != TRUE)
+				return FALSE;
+			if (i < len && insert_newline() != TRUE)
+				return FALSE;
+			start = i + 1;
+		}
+	}
+	return TRUE;
+}
+
+int line_truncate(struct line *lp, int len)
+{
+	struct window *wp;
+
+	if (len >= lp->l_used)
+		return TRUE;
+	undo_record_delete(lp, len, &lp->l_text[len], lp->l_used - len);
+	lp->l_used = len;
+	for (wp = window_head; wp != NULL; wp = wp->w_wndp) {
+		if (wp->w_dotp == lp && wp->w_doto > len)
+			wp->w_doto = len;
+		if (wp->w_markp == lp && wp->w_marko > len)
+			wp->w_marko = len;
+	}
+	buffer_changed(WFHARD);
+	return TRUE;
+}
+
+int insert_text(const char *s, int len)
+{
+	if (len > 0 && curwp->w_dotp == curbp->b_linep && s[len - 1] == '\n') {
+		if (insert_newline() != TRUE)
+			return FALSE;
+		curwp->w_dotp = line_prev(curbp->b_linep);
+		curwp->w_doto = 0;
+		return insert_bytes(s, len - 1);
+	}
+	return insert_bytes(s, len);
 }

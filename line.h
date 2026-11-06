@@ -3,20 +3,14 @@
 
 #include "utf8.h"
 
-/*
- * All text is kept in circularly linked lists of "struct line" structures. These
- * begin at the header line (which is the blank line beyond the end of the
- * buffer). This line is pointed to by the "struct buffer". Each line contains a the
- * number of bytes in the line (the "used" size), the size of the text array,
- * and the text. The end of line is not stored as a byte; it's implied. Future
- * additions will include update hints, and a list of marks into the line.
- */
+struct buffer;
+
 struct line {
-	struct line *l_fp;			/* Link to the next line        */
-	struct line *l_bp;			/* Link to the previous line    */
-	int l_size;				/* Allocated size               */
-	int l_used;				/* Used size                    */
-	char l_text[1];				/* A bunch of characters.       */
+	struct line *l_fp;
+	struct line *l_bp;
+	int l_size;
+	int l_used;
+	char l_text[1];
 };
 
 #define line_next(lp)       ((lp)->l_fp)
@@ -42,6 +36,23 @@ extern int delete_newline(void);
 extern void kdelete(void);
 extern int kinsert(int c);
 extern int cmd_yank(int f, int n);
-extern struct line *line_alloc(int);		/* Allocate a line. */
+extern struct line *line_alloc(int);
+extern int insert_byte(int n, int c);
+extern void line_number_hint(struct line *lp, long n);
+extern void line_number_flush(void);
+extern long buffer_line_number(struct buffer *bp, struct line *lp);
+extern long line_number(struct line *lp);
+extern int line_put_byte(struct line *lp, int off, int c);
+extern int insert_bytes(const char *s, int len);
+extern int line_truncate(struct line *lp, int len);
+extern int insert_text(const char *s, int len);
+extern struct line *line_at(long L);
+struct buffer;
+extern long undo_record_insert(struct line *lp, int off, const char *s, int len);
+extern long undo_record_insert_buf(struct line *lp, int off, const char *s, int len);
+extern long undo_record_insert_fill(struct line *lp, int off, int c, int n);
+extern long undo_record_delete(struct line *lp, int off, const char *s, int len);
+extern long undo_record_replace(struct line *lp, int off, const char *olds, const char *news, int len);
+extern int buffer_was_modified;
 
-#endif				/* LINE_H_ */
+#endif

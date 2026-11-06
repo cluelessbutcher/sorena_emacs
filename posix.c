@@ -1,15 +1,3 @@
-/*	posix.c
- *
- *      The functions in this file negotiate with the operating system for
- *      characters, and write characters in a barely buffered fashion on the
- *      display. All operating systems.
- *
- *	modified by Petri Kutvonen
- *
- *	based on termio.c, with all the old cruft removed, and
- *	fixed for termios rather than the old termio.. Linus Torvalds
- */
-
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -23,104 +11,63 @@
 #include "efunc.h"
 #include "utf8.h"
 
-static int kbdflgs;				/* saved keyboard fd flags      */
-static int kbdpoll;				/* in O_NDELAY mode             */
+static int kbdflgs;
+static int kbdpoll;
 
-static struct termios otermios;			/* original terminal characteristics */
-static struct termios ntermios;			/* charactoristics to use inside */
+static struct termios otermios;
+static struct termios ntermios;
 
-#define TBUFSIZ 128
-static char tobuf[TBUFSIZ];			/* terminal output buffer */
+#define TBUFSIZ 65536
+static char tobuf[TBUFSIZ];
 
-/*
- * This function is called once to set up the terminal device streams.
- * On VMS, it translates TT until it finds the terminal, then assigns
- * a channel to it and sets it raw. On CPM it is a no-op.
- */
 void ttopen(void)
 {
-	tcgetattr(0, &otermios);		/* save old settings */
+	tcgetattr(0, &otermios);
 
-	/*
-	 * base new settings on old ones - don't change things
-	 * we don't know about
-	 */
 	ntermios = otermios;
 
-	/* raw CR/NL etc input handling, but keep ISTRIP if we're on a 7-bit line */
-	ntermios.c_iflag &= ~(IGNBRK | BRKINT | IGNPAR | PARMRK | INPCK | INLCR | IGNCR | ICRNL);
+	ntermios.c_iflag &= ~(IGNBRK | BRKINT | IGNPAR | PARMRK | INPCK | INLCR | IGNCR | ICRNL | IXON | IXOFF);
 
-	/* raw CR/NR etc output handling */
 	ntermios.c_oflag &= ~(OPOST | ONLCR | OLCUC | OCRNL | ONOCR | ONLRET);
 
-	/* No signal handling, no echo etc */
 	ntermios.c_lflag &= ~(ISIG | ICANON | XCASE | ECHO | ECHOE | ECHOK
 			      | ECHONL | NOFLSH | TOSTOP | ECHOCTL |
 			      ECHOPRT | ECHOKE | FLUSHO | PENDIN | IEXTEN);
 
-	/* one character, no timeout */
 	ntermios.c_cc[VMIN] = 1;
 	ntermios.c_cc[VTIME] = 0;
-	tcsetattr(0, TCSADRAIN, &ntermios);	/* and activate them */
+	tcsetattr(0, TCSADRAIN, &ntermios);
 
-	/*
-	 * provide a smaller terminal output buffer so that
-	 * the type ahead detection works better (more often)
-	 */
-	setbuffer(stdout, &tobuf[0], TBUFSIZ);
+	setvbuf(stdout, &tobuf[0], _IOFBF, TBUFSIZ);
 
 	kbdflgs = fcntl(0, F_GETFL, 0);
 	kbdpoll = FALSE;
 
-	/* on all screens we are not sure of the initial position
-	   of the cursor                                        */
 	shown_row = 999;
 	shown_col = 999;
 }
 
-/*
- * This function gets called just before we go back home to the command
- * interpreter. On VMS it puts the terminal back in a reasonable state.
- * Another no-operation on CPM.
- */
 void ttclose(void)
 {
-	tcsetattr(0, TCSADRAIN, &otermios);	/* restore terminal settings */
+	tcsetattr(0, TCSADRAIN, &otermios);
 }
 
-/*
- * Write a character to the display. On VMS, terminal output is buffered, and
- * we just put the characters in the big array, after checking for overflow.
- * On CPM terminal I/O unbuffered, so we just write the byte out. Ditto on
- * MS-DOS (use the very very raw console output routine).
- */
 int ttputc(int c)
 {
 	char utf8[6];
 	int bytes;
 
+	if ((unsigned)c < 0x80) {
+		putc_unlocked(c, stdout);
+		return 0;
+	}
 	bytes = unicode_to_utf8(c, utf8);
 	fwrite(utf8, 1, bytes, stdout);
 	return 0;
 }
 
-/*
- * Flush terminal buffer. Does real work where the terminal output is buffered
- * up. A no-operation on systems where byte at a time terminal I/O is done.
- */
 void ttflush(void)
 {
-/*
- * Add some terminal output success checking, sometimes an orphaned
- * process may be left looping on SunOS 4.1.
- *
- * How to recover here, or is it best just to exit and lose
- * everything?
- *
- * jph, 8-Oct-1993
- * Jani Jaakkola suggested using select after EAGAIN but let's just wait a bit
- *
- */
 	int status;
 
 	status = fflush(stdout);
@@ -132,26 +79,36 @@ void ttflush(void)
 		exit(15);
 }
 
-/*
- * Small tty input buffer
- */
 static struct {
 	int nr;
-	char buf[32];
+	int pos;
+	char buf[8192];
 } TT;
 
-/* Pause for x*.1 second lag or until keypress */
+static void tt_compact(void)
+{
+	if (TT.pos) {
+		memmove(TT.buf, TT.buf + TT.pos, TT.nr);
+		TT.pos = 0;
+	}
+}
+
 static void pause_read(int pause)
 {
 	int n;
 
+	tt_compact();
+	if (TT.nr >= (int)sizeof(TT.buf))
+		return;
 	ntermios.c_cc[VMIN] = 0;
 	ntermios.c_cc[VTIME] = pause;
 	tcsetattr(0, TCSANOW, &ntermios);
 
-	n = read(0, TT.buf + TT.nr, sizeof(TT.buf) - TT.nr);
+	{
+		size_t room = sizeof(TT.buf) - (size_t)TT.nr;
+		n = read(0, TT.buf + (size_t)TT.nr, room > sizeof(TT.buf) ? 0 : room);
+	}
 
-	/* Undo timeout */
 	ntermios.c_cc[VMIN] = 1;
 	ntermios.c_cc[VTIME] = 0;
 	tcsetattr(0, TCSANOW, &ntermios);
@@ -166,13 +123,6 @@ void ttpause(void)
 		pause_read(term.t_pause);
 }
 
-/*
- * One character of pushback.  The incremental search reads the
- * character that ended it, decides it was a command rather than part of
- * the pattern, and hands it back for the command loop to find.  A
- * second pushback with one still pending is dropped, which is what the
- * caller has always relied on.
- */
 static int pushback = -1;
 
 void ttungetc(int c)
@@ -181,15 +131,11 @@ void ttungetc(int c)
 		pushback = c;
 }
 
-/*
- * Read a character from the terminal, performing no editing and doing no echo
- * at all. More complex in VMS that almost anyplace else, which figures. Very
- * simple on CPM, because the system can do exactly what you want.
- */
 int ttgetc(void)
 {
 	unicode_t c;
 	int count, bytes = 1, expected;
+	char *d;
 
 	if (pushback >= 0) {
 		c = pushback;
@@ -199,69 +145,61 @@ int ttgetc(void)
 
 	count = TT.nr;
 	while (!count) {
+		TT.pos = 0;
 		count = read(0, TT.buf, sizeof(TT.buf));
 		if (count > 0) {
 			TT.nr = count;
 			break;
 		}
-		/* a signal, most likely the window changing size */
 		if (count < 0 && errno == EINTR) {
 			checkwinsize();
 			count = 0;
 			continue;
 		}
-		return 0;
+		if (count == 0 || (count < 0 && errno != EAGAIN))
+			emergency_exit(SIGHUP);
+		count = 0;
 	}
 
-	c = (unsigned char)TT.buf[0];
+	d = TT.buf + TT.pos;
+	c = (unsigned char)d[0];
 	if (c != 27 && c < 128)
 		goto done;
 
-	/*
-	 * Lazy. We don't bother calculating the exact
-	 * expected length. We want at least two characters
-	 * for the special character case (ESC+[) and for
-	 * the normal short UTF8 sequence that starts with
-	 * the 110xxxxx pattern.
-	 *
-	 * But if we have any of the other patterns, just
-	 * try to get more characters. At worst, that will
-	 * just result in a barely perceptible 0.1 second
-	 * delay for some *very* unusual utf8 character
-	 * input.
-	 */
-	expected = 2;
-	if ((c & 0xe0) == 0xe0)
-		expected = 6;
+	if (c == 27)
+		expected = 2;
+	else if ((c & 0xf8) == 0xf0)
+		expected = 4;
+	else if ((c & 0xf0) == 0xe0)
+		expected = 3;
+	else
+		expected = 2;
 
-	/* Special character - try to re-fill the buffer */
-	if (count < expected)
+	if (TT.nr < expected) {
 		pause_read(1);
+		d = TT.buf + TT.pos;
+	}
 
 	if (TT.nr > 1) {
-		unsigned char second = TT.buf[1];
+		unsigned char second = d[1];
 
-		/* Turn ESC+'[' into CSI */
 		if (c == 27 && second == '[') {
 			bytes = 2;
 			c = 128 + 27;
 			goto done;
 		}
 	}
-	bytes = utf8_to_unicode(TT.buf, 0, TT.nr, &c);
+	bytes = utf8_to_unicode(d, 0, TT.nr, &c);
 
-	/* Hackety hack! Turn no-break space into regular space */
 	if (c == 0xa0)
 		c = ' ';
  done:
 	TT.nr -= bytes;
-	memmove(TT.buf, TT.buf + bytes, TT.nr);
+	TT.pos += bytes;
+	if (TT.nr == 0)
+		TT.pos = 0;
 	return c;
 }
-
-/* typahead:	Check to see if any characters are already in the
-		keyboard TT.buf
-*/
 
 int typahead(void)
 {

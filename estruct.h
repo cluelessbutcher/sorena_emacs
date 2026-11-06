@@ -1,44 +1,40 @@
-/*      ESTRUCT.H
- *
- *      Structure and preprocessor defines
- *
- *	written by Dave G. Conroy
- *	modified by Steve Wilhite, George Jones
- *      substantially modified by Daniel Lawrence
- *	modified by Petri Kutvonen
- */
-
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <stdbool.h>
 
 #define MAXCOL	500
 #define MAXROW	500
 
-/* System dependant library redefinitions, structures and includes. */
-
-/* Define some ability flags. */
-
-/* Emacs global flag bit definitions (for gflags). */
-
 #define	GFREAD	1
 
-/* Internal constants. */
+#define CMPL_NONE    0
+#define CMPL_FILE    1
+#define CMPL_BUFFER  2
+#define CMPL_COMMAND 3
+#define CMPL_MODE    4
+#define CMPL_SEARCH  5
 
-#define	NBINDS	256				/* max # of bound keys          */
-#define NFILEN  256				/* # of bytes, file name        */
-#define NBUFN   16				/* # of bytes, buffer name      */
-#define NLINE   256				/* # of bytes, input line       */
-#define	NSTRING	128				/* # of bytes, string buffers   */
-#define NKBDM   256				/* # of strokes, keyboard macro */
-#define NPAT    128				/* # of bytes, pattern          */
-#define HUGE    1000				/* Huge number                  */
-#define	NLOCKS	1000				/* max # of file locks active   */
-#define	KBLOCK	250				/* sizeof kill buffer chunks    */
+#define	NBINDS	1024
+#define NFILEN  1024
+#define NBUFN   64
+#define NLINE   256
+#define	NSTRING	1024
+#define NKBDM   256
+#define NPAT    256
+#define HUGE    1000
+#define	NLOCKS	1000
+#define	KBLOCK	250
 
-#define CONTROL 0x10000000			/* Control flag, or'ed in       */
-#define META    0x20000000			/* Meta flag, or'ed in          */
-#define CTLX    0x40000000			/* ^X flag, or'ed in            */
-#define	SPEC	0x80000000			/* special key (function keys)  */
+#define CONTROL 0x10000000
+#define META    0x20000000
+#define CTLX    0x40000000
+#define	SPEC	0x80000000
+#define SHIFT   0x08000000
+#define HOOK_CMD    (SPEC | META | CTLX | CTLC | 'C')
+#define HOOK_READ   (SPEC | META | CTLX | CTLC | 'R')
+#define HOOK_WRAP   (SPEC | META | CTLX | CTLC | 'W')
+#define HOOK_CHANGE (SPEC | META | CTLX | CTLC | 'X')
+#define CTLC    0x04000000
 
 #ifdef	FALSE
 #undef	FALSE
@@ -47,16 +43,14 @@
 #undef	TRUE
 #endif
 
-#define FALSE   0				/* False, no, bad, etc.         */
-#define TRUE    1				/* True, yes, good, etc.        */
-#define ABORT   2				/* Death, ^G, abort, etc.       */
-#define	FAILED	3				/* not-quite fatal false return */
+#define FALSE   0
+#define TRUE    1
+#define ABORT   2
+#define	FAILED	3
 
-#define	STOP	0				/* keyboard macro not in use    */
-#define	PLAY	1				/*                playing       */
-#define	RECORD	2				/*                recording     */
-
-/*	Directive definitions	*/
+#define	STOP	0
+#define	PLAY	1
+#define	RECORD	2
 
 #define	DIF		0
 #define DELSE		1
@@ -71,58 +65,49 @@
 
 #define NUMDIRS		10
 
-/*
- * PTBEG, PTEND, FORWARD, and REVERSE are all toggle-able values for
- * the scan routines.
- */
-#define	PTBEG	0				/* Leave the point at the beginning on search   */
-#define	PTEND	1				/* Leave the point at the end on search         */
-#define	FORWARD	0				/* forward direction            */
-#define REVERSE	1				/* backwards direction          */
+#define	PTBEG	0
+#define	PTEND	1
+#define	FORWARD	0
+#define REVERSE	1
 
-#define FIOSUC  0				/* File I/O, success.           */
-#define FIOFNF  1				/* File I/O, file not found.    */
-#define FIOEOF  2				/* File I/O, end of file.       */
-#define FIOERR  3				/* File I/O, error.             */
-#define	FIOMEM	4				/* File I/O, out of memory      */
-#define	FIOFUN	5				/* File I/O, eod of file/bad line */
+#define FIOSUC  0
+#define FIOFNF  1
+#define FIOEOF  2
+#define FIOERR  3
+#define	FIOMEM	4
+#define	FIOFUN	5
 
-#define CFCPCN  0x0001				/* Last command was C-P, C-N    */
-#define CFKILL  0x0002				/* Last command was a kill      */
+#define CFCPCN  0x0001
+#define CFKILL  0x0002
+#define CFYANK  0x0004
+#define CFDABB  0x0008
+#define CFMARK  0x0010
+#define CFRECN  0x0020
+#define CFKEEPR 0x0040
 
-#define	BELL	0x07				/* a bell character             */
-#define	TAB	0x09				/* a tab character              */
+#define	BELL	0x07
+#define	TAB	0x09
 
 #define	PATHCHR	':'
 
 #define	INTWIDTH	sizeof(int) * 3
 
-/*	Macro argument token types					*/
-
-#define	TKNUL	0				/* end-of-string                */
-#define	TKARG	1				/* interactive argument         */
-#define	TKBUF	2				/* buffer argument              */
-#define	TKVAR	3				/* user variables               */
-#define	TKENV	4				/* environment variables        */
-#define	TKFUN	5				/* function....                 */
-#define	TKDIR	6				/* directive                    */
-#define	TKLBL	7				/* line label                   */
-#define	TKLIT	8				/* numeric literal              */
-#define	TKSTR	9				/* quoted string literal        */
-#define	TKCMD	10				/* command name                 */
-
-/*	Internal defined functions					*/
+#define	TKNUL	0
+#define	TKARG	1
+#define	TKBUF	2
+#define	TKVAR	3
+#define	TKENV	4
+#define	TKFUN	5
+#define	TKDIR	6
+#define	TKLBL	7
+#define	TKLIT	8
+#define	TKSTR	9
+#define	TKCMD	10
 
 #define	nextab(a)	(a & ~tabmask) + (tabmask+1)
 #ifdef	abs
 #undef	abs
 #endif
-
-/* DIFCASE represents the integer difference between upper
-   and lower case letters.  It is an xor-able value, which is
-   fortunate, since the relative positions of upper to lower
-   case letters is the opposite of ascii in ebcdic.
-*/
 
 #ifdef	islower
 #undef	islower
@@ -142,54 +127,29 @@
 #define isxlower(c)	(('a' <= c && 'z' >= c) || (224 <= c && 252 >= c))
 #define isxupper(c)	(('A' <= c && 'Z' >= c) || (192 <= c && 220 >= c))
 
-/*
- * There is a window structure allocated for the active display window.
- * The window contains its own values of dot and mark.
- * The flag field contains some bits that are set by commands to guide
- * redisplay. Although this is a bit of a compromise in terms of decoupling,
- * the full blown redisplay is just too expensive to run for every input
- * character.
- */
 struct window {
-	struct window *w_wndp;			/* Next window                  */
-	struct buffer *w_bufp;			/* Buffer displayed in window   */
-	struct line *w_linep;			/* Top line in the window       */
-	struct line *w_dotp;			/* Line containing "."          */
-	struct line *w_markp;			/* Line containing "mark"       */
-	int w_doto;				/* Byte offset for "."          */
-	int w_marko;				/* Byte offset for "mark"       */
-	int w_toprow;				/* Origin 0 top row of window   */
-	int w_ntrows;				/* # of rows of text in window  */
-	char w_force;				/* If NZ, forcing row.          */
-	char w_flag;				/* Flags.                       */
+	struct window *w_wndp;
+	struct buffer *w_bufp;
+	struct line *w_linep;
+	struct line *w_dotp;
+	struct line *w_markp;
+	int w_doto;
+	int w_marko;
+	int w_toprow;
+	int w_ntrows;
+	char w_force;
+	char w_flag;
 };
 
-#define WFFORCE 0x01				/* Window needs forced reframe  */
-#define WFMOVE  0x02				/* Movement from line to line   */
-#define WFEDIT  0x04				/* Editing within a line        */
-#define WFHARD  0x08				/* Better to a full display     */
-#define WFMODE  0x10				/* Update mode line.            */
+#define WFFORCE 0x01
+#define WFMOVE  0x02
+#define WFEDIT  0x04
+#define WFHARD  0x08
+#define WFMODE  0x10
 
-/*
- * What the file looked like when the buffer last matched it - set when
- * we read it, and again each time we write it.  Before overwriting the
- * file we look again, and if it no longer looks like this then somebody
- * else has been at it and we ask first.
- *
- * "Did not exist" is a state of its own, and is the interesting one: a
- * file that is not there yet cannot be locked, so two editors started on
- * the same new name are invisible to each other until one of them saves.
- *
- * Device and inode matter as much as size and time do.  A file replaced
- * by writing a temporary and renaming it over - which is what git and
- * patch and most other editors do - lands on a new inode, very often at
- * exactly the same size.  Our own writes go through fopen(fn, "w"),
- * which truncates in place and keeps the inode, so this never trips over
- * our own feet.
- */
-#define	FSTATE_UNKNOWN	0			/* no baseline recorded */
-#define	FSTATE_ABSENT	1			/* it wasn't there      */
-#define	FSTATE_PRESENT	2			/* it was, see below    */
+#define	FSTATE_UNKNOWN	0
+#define	FSTATE_ABSENT	1
+#define	FSTATE_PRESENT	2
 
 struct filestate {
 	int fs_what;
@@ -199,183 +159,128 @@ struct filestate {
 	struct timespec fs_mtim;
 };
 
-/*
- * Text is kept in buffers. A buffer header, described below, exists for every
- * buffer in the system. The buffers are kept in a big list, so that commands
- * that search for a buffer by name can find the buffer header. There is a
- * safe store for the dot and mark in the header, but this is only valid if
- * the buffer is not being displayed (that is, if "b_nwnd" is 0). The text for
- * the buffer is kept in a circularly linked list of lines, with a pointer to
- * the header line in "b_linep".
- * 	Buffers may be "Inactive" which means the files associated with them
- * have not been read in yet. These get read in at "use buffer" time.
- */
 struct buffer {
-	struct buffer *b_bufp;			/* Link to next struct buffer   */
-	struct line *b_dotp;			/* Link to "." struct line structure   */
-	struct line *b_markp;			/* The same as the above two,   */
-	struct line *b_linep;			/* Link to the header struct line      */
-	int b_doto;				/* Offset of "." in above struct line  */
-	int b_marko;				/* but for the "mark"           */
-	int b_mode;				/* editor mode of this buffer   */
-	char b_active;				/* window activated flag        */
-	char b_nwnd;				/* Count of windows on buffer   */
-	char b_flag;				/* Flags                        */
-	struct filestate b_fstate;		/* File as of our last match    */
-	char b_fname[NFILEN];			/* File name                    */
-	char b_bname[NBUFN];			/* Buffer name                  */
+	struct buffer *b_bufp;
+	struct line *b_dotp;
+	struct line *b_markp;
+	struct line *b_linep;
+	int b_doto;
+	int b_marko;
+	int b_mode;
+	char b_active;
+	char b_nwnd;
+	char b_flag;
+	struct filestate b_fstate;
+	struct undo *b_undo;
+	int b_indent;
+	int b_lang;
+	char b_fname[NFILEN];
+	char b_bname[NBUFN];
 };
 
-#define BFINVS  0x01				/* Internal invisable buffer    */
-#define BFCHG   0x02				/* Changed since last write     */
-#define	BFTRUNC	0x04				/* buffer was truncated when read */
+#define BFINVS  0x01
+#define BFCHG   0x02
+#define	BFTRUNC	0x04
 
-/*	mode flags	*/
-#define	NUMMODES	9			/* # of defined modes           */
+#define	NUMMODES	11
 
-#define	MDWRAP	0x0001				/* word wrap                    */
-#define	MDCMOD	0x0002				/* C indentation and fence match */
-#define	MDSPELL	0x0004				/* spell error parsing          */
-#define	MDEXACT	0x0008				/* Exact matching for searches  */
-#define	MDVIEW	0x0010				/* read-only buffer             */
-#define MDOVER	0x0020				/* overwrite mode               */
-#define MDMAGIC	0x0040				/* regular expressions in search */
-#define	MDASAVE	0x0080				/* auto-save mode               */
-/*
- * 0x0100 is the "utf-8" mode's, and has no name here because nothing
- * reads it - commit 12e4647 ("Remove the old utf8_mode thing.") took
- * MDUTF8 away and left the mode in modename[], where emacs.rc still
- * turns it on from $LANG.  A new mode starts at 0x0200.
- */
+#define	MDWRAP	0x0001
+#define	MDCMOD	0x0002
+#define	MDSPELL	0x0004
+#define	MDEXACT	0x0008
+#define	MDVIEW	0x0010
+#define MDOVER	0x0020
+#define MDMAGIC	0x0040
+#define	MDASAVE	0x0080
+#define MDINDENT 0x0200
+#define MDPAIR  0x0400
 
-/*
- * The starting position of a region, and the size of the region in
- * characters, is kept in a region structure.  Used by the region commands.
- */
 struct region {
-	struct line *r_linep;			/* Origin struct line address.         */
-	int r_offset;				/* Origin struct line offset.          */
-	long r_size;				/* Length in characters.        */
+	struct line *r_linep;
+	int r_offset;
+	long r_size;
 };
 
-/*
- * What the editor knows about the terminal it is talking to: how big it
- * is, and how far a long line may be scrolled sideways.
- */
 struct terminal {
-	short t_mrow;				/* max number of rows allowable */
-	short t_nrow;				/* current number of rows used  */
-	short t_mcol;				/* max Number of columns.       */
-	short t_ncol;				/* current Number of columns.   */
-	short t_margin;				/* min margin for extended lines */
-	short t_scrsiz;				/* size of scroll region "      */
-	int t_pause;				/* # times thru update to pause */
+	short t_mrow;
+	short t_nrow;
+	short t_mcol;
+	short t_ncol;
+	short t_margin;
+	short t_scrsiz;
+	int t_pause;
 };
 
-
-/* Structure for the table of initial key bindings. */
 struct key_tab {
-	int k_code;				/* Key code */
-	int (*k_fp)(int, int);			/* Routine to handle it */
+	int k_code;
+	int (*k_fp)(int, int);
 };
 
-/* Structure for the name binding table. */
 struct name_bind {
-	char *n_name;				/* name of function key */
-	int (*n_func)(int, int);		/* function name is bound to */
+	char *n_name;
+	int (*n_func)(int, int);
 };
 
-/* The editor holds deleted text chunks in the struct kill buffer. The
- * kill buffer is logically a stream of ascii characters, however
- * due to its unpredicatable size, it gets implemented as a linked
- * list of chunks. (The d_ prefix is for "deleted" text, as k_
- * was taken up by the keycode structure).
- */
 struct kill {
-	struct kill *d_next;			/* Link to next chunk, NULL if last. */
-	char d_chunk[KBLOCK];			/* Deleted text. */
+	struct kill *d_next;
+	char d_chunk[KBLOCK];
 };
 
-/* When emacs' command interpetor needs to get a variable's name,
- * rather than it's value, it is passed back as a variable description
- * structure. The v_num field is a index into the appropriate variable table.
- */
 struct variable_description {
-	int v_type;				/* Type of variable. */
-	int v_num;				/* Ordinal pointer to variable in list. */
+	int v_type;
+	int v_num;
 };
 
-/* The !WHILE directive in the execution language needs to
- * stack references to pending whiles. These are stored linked
- * to each currently open procedure via a linked list of
- * the following structure.
-*/
 struct while_block {
-	struct line *w_begin;			/* ptr to !while statement */
-	struct line *w_end;			/* ptr to the !endwhile statement */
-	int w_type;				/* block type */
-	struct while_block *w_next;		/* next while */
+	struct line *w_begin;
+	struct line *w_end;
+	int w_type;
+	struct while_block *w_next;
 };
 
 #define	BTWHILE		1
 #define	BTBREAK		2
 
-/*
- * Incremental search defines.
- */
-#define	CMDBUFLEN	256			/* Length of our command buffer */
+#define	CMDBUFLEN	256
 
-#define	IS_ABORT	0x07			/* Abort the isearch */
-#define IS_BACKSP	0x08			/* Delete previous char */
-#define	IS_TAB		0x09			/* Tab character (allowed search char) */
-#define IS_NEWLINE	0x0D			/* New line from keyboard (Carriage return) */
-#define	IS_QUOTE	0x11			/* Quote next character */
-#define IS_REVERSE	0x12			/* Search backward */
-#define	IS_FORWARD	0x13			/* Search forward */
-#define	IS_QUIT		0x1B			/* Exit the search */
-#define	IS_RUBOUT	0x7F			/* Delete previous character */
+#define	IS_ABORT	0x07
+#define IS_BACKSP	0x08
+#define	IS_TAB		0x09
+#define IS_NEWLINE	0x0D
+#define	IS_QUOTE	0x11
+#define IS_REVERSE	0x12
+#define	IS_FORWARD	0x13
+#define	IS_QUIT		0x1B
+#define	IS_RUBOUT	0x7F
 
-/* IS_QUIT is no longer used, the variable metac is used instead */
-
-/*
- * Defines for the metacharacters in the regular expression
- * search routines.
- */
-#define	MCNIL		0			/* Like the '\0' for strings. */
-#define	LITCHAR		1			/* Literal character, or string. */
+#define	MCNIL		0
+#define	LITCHAR		1
 #define	ANY		2
 #define	CCL		3
 #define	NCCL		4
 #define	BOL		5
 #define	EOL		6
 #define	DITTO		7
-#define	CLOSURE		256			/* An or-able value. */
+#define	CLOSURE		256
 #define	MASKCL		(CLOSURE - 1)
 
-#define	MC_ANY		'.'			/* 'Any' character (except newline). */
-#define	MC_CCL		'['			/* Character class. */
-#define	MC_NCCL		'^'			/* Negate character class. */
-#define	MC_RCCL		'-'			/* Range in character class. */
-#define	MC_ECCL		']'			/* End of character class. */
-#define	MC_BOL		'^'			/* Beginning of line. */
-#define	MC_EOL		'$'			/* End of line. */
-#define	MC_CLOSURE	'*'			/* Closure - does not extend past newline. */
-#define	MC_DITTO	'&'			/* Use matched string in replacement. */
-#define	MC_ESC		'\\'			/* Escape - suppress meta-meaning. */
+#define	MC_ANY		'.'
+#define	MC_CCL		'['
+#define	MC_NCCL		'^'
+#define	MC_RCCL		'-'
+#define	MC_ECCL		']'
+#define	MC_BOL		'^'
+#define	MC_EOL		'$'
+#define	MC_CLOSURE	'*'
+#define	MC_DITTO	'&'
+#define	MC_ESC		'\\'
 
-#define	BIT(n)		(1 << (n))		/* An integer with one bit set. */
-#define	CHCASE(c)	((c) ^ DIFCASE)		/* Toggle the case of a letter. */
+#define	BIT(n)		(1 << (n))
+#define	CHCASE(c)	((c) ^ DIFCASE)
 
-/* HICHAR - 1 is the largest character we will deal with.
- * HIBYTE represents the number of bytes in the bitmap.
- */
 #define	HICHAR		256
 #define	HIBYTE		HICHAR >> 3
 
-/* Typedefs that define the meta-character structure for MAGIC mode searching
- * (struct magic), and the meta-character structure for MAGIC mode replacement
- * (struct magic_replacement).
- */
 struct magic {
 	short int mc_type;
 	union {

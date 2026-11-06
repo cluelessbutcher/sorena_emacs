@@ -1,17 +1,3 @@
-/*	efunc.h
- *
- *	Function declarations and names.
- *
- *	This file list all the C code functions used and the names to use
- *      to bind keys to them. To add functions,	declare it here in both the
- *      extern function list and the name binding table.
- *
- *	modified by Petri Kutvonen
- */
-
-/* External function declarations. */
-
-/* word.c */
 extern int cmd_wrap_word(int f, int n);
 extern int cmd_previous_word(int f, int n);
 extern int cmd_next_word(int f, int n);
@@ -26,7 +12,6 @@ extern int cmd_justify_paragraph(int f, int n);
 extern int cmd_kill_paragraph(int f, int n);
 extern int cmd_count_words(int f, int n);
 
-/* window.c */
 extern int cmd_split_current_window(int f, int n);
 extern int cmd_next_window(int f, int n);
 extern int cmd_previous_window(int f, int n);
@@ -46,7 +31,6 @@ extern int cmd_clear_and_redraw(int f, int n);
 extern int cmd_change_screen_size(int f, int n);
 extern int cmd_change_screen_width(int f, int n);
 
-/* basic.c */
 extern int cmd_beginning_of_line(int f, int n);
 extern int cmd_backward_character(int f, int n);
 extern int cmd_end_of_line(int f, int n);
@@ -63,8 +47,7 @@ extern int cmd_previous_page(int f, int n);
 extern int cmd_set_mark(int f, int n);
 extern int cmd_exchange_point_and_mark(int f, int n);
 
-/* random.c */
-extern int tabsize;				/* Tab size (0: use real tabs). */
+extern int tabsize;
 extern int cmd_set_fill_column(int f, int n);
 extern int cmd_buffer_position(int f, int n);
 extern int getcline(void);
@@ -98,7 +81,6 @@ extern int fmatch(int ch);
 extern int cmd_insert_string(int f, int n);
 extern int cmd_overwrite_string(int f, int n);
 
-/* main.c */
 extern void edinit(char *bname);
 extern int execute(int c, int f, int n);
 extern int cmd_quick_exit(int f, int n);
@@ -114,7 +96,6 @@ extern int cmd_meta_prefix(int f, int n);
 extern int cmd_ctlx_prefix(int f, int n);
 extern int cmd_universal_argument(int f, int n);
 
-/* display.c */
 extern void display_open(void);
 extern void display_close(void);
 extern int cmd_update_screen(int f, int n);
@@ -131,14 +112,12 @@ extern void getscreensize(int *widthp, int *heightp);
 extern void sizesignal(int signr);
 extern void checkwinsize(void);
 
-/* region.c */
 extern int cmd_kill_region(int f, int n);
 extern int cmd_copy_region(int f, int n);
 extern int cmd_case_region_lower(int f, int n);
 extern int cmd_case_region_upper(int f, int n);
 extern int getregion(struct region *rp);
 
-/* tcap.c */
 extern void tcapopen(void);
 extern void tcapclose(void);
 extern void tcapkopen(void);
@@ -149,7 +128,6 @@ extern void tcapeeop(void);
 extern void tcapbeep(void);
 extern void tcaprev(int state);
 
-/* posix.c */
 extern void ttopen(void);
 extern void ttclose(void);
 extern int ttputc(int c);
@@ -159,13 +137,12 @@ extern int ttgetc(void);
 extern void ttungetc(int c);
 extern int typahead(void);
 
-/* input.c */
 extern int ask_yesno(char *prompt);
 extern int ask_string(char *prompt, char *buf, int nbuf);
 extern int ask_string_until(char *prompt, char *buf, int nbuf, int eolchar);
 extern int keycode_to_char(int c);
 extern int char_to_keycode(int c);
-extern fn_t getname(void);
+extern fn_t getname(char *prompt);
 extern int tgetc(void);
 extern int get1key(void);
 extern int getcmd(void);
@@ -173,7 +150,6 @@ extern int getstring(char *prompt, char *buf, int nbuf, int eolchar);
 extern void outstring(char *s);
 extern void ostring(char *s);
 
-/* bind.c */
 extern int cmd_help(int f, int n);
 extern int cmd_describe_bindings(int f, int n);
 extern int cmd_apropos(int f, int n);
@@ -191,7 +167,6 @@ extern fn_t fncmatch(char *);
 extern unsigned int stock(char *keyname);
 extern char *transbind(char *skey);
 
-/* buffer.c */
 extern int cmd_select_buffer(int f, int n);
 extern int cmd_next_buffer(int f, int n);
 extern int swbuffer(struct buffer *bp);
@@ -206,10 +181,9 @@ extern int addline(struct buffer *bp, char *text);
 extern int any_changed_buffers(void);
 extern int clear_buffer(struct buffer *bp);
 extern int cmd_unmark_buffer(int f, int n);
-/* Lookup a buffer by name. */
+
 extern struct buffer *find_buffer(char *bname, int cflag, int bflag);
 
-/* file.c */
 extern int cmd_read_file(int f, int n);
 extern int cmd_insert_file(int f, int n);
 extern int cmd_find_file(int f, int n);
@@ -225,7 +199,6 @@ extern int cmd_change_file_name(int f, int n);
 extern int insert_file(char *fname);
 extern int file_changed(struct buffer *bp, char *fn);
 
-/* fileio.c */
 extern int file_open_read(char *fn);
 extern int file_open_write(char *fn);
 extern int file_close(void);
@@ -233,7 +206,6 @@ extern int file_put_line(char *buf, int nbuf);
 extern int file_get_line(void);
 extern int file_exists(char *fname);
 
-/* exec.c */
 extern int cmd_execute_named_command(int f, int n);
 extern int cmd_execute_command_line(int f, int n);
 extern int docmd(char *cline);
@@ -290,7 +262,6 @@ extern int cmd_execute_macro_38(int f, int n);
 extern int cmd_execute_macro_39(int f, int n);
 extern int cmd_execute_macro_40(int f, int n);
 
-/* spawn.c */
 extern int cmd_interactive_shell(int f, int n);
 extern int cmd_suspend_emacs(int f, int n);
 extern void rtfrmshell(void);
@@ -299,7 +270,6 @@ extern int cmd_execute_program(int f, int n);
 extern int cmd_pipe_command(int f, int n);
 extern int cmd_filter_buffer(int f, int n);
 
-/* search.c */
 extern int cmd_search_forward(int f, int n);
 extern int cmd_hunt_forward(int f, int n);
 extern int cmd_search_reverse(int f, int n);
@@ -317,7 +287,6 @@ extern int at_buffer_end(struct line *curline, int curoff, int dir);
 extern void mcclear(void);
 extern void rmcclear(void);
 
-/* isearch.c */
 extern int cmd_reverse_incremental_search(int f, int n);
 extern int cmd_incremental_search(int f, int n);
 extern int isearch(int f, int n);
@@ -327,7 +296,6 @@ extern int match_pat(char *patrn);
 extern int promptpattern(char *prompt);
 extern int get_char(void);
 
-/* eval.c */
 extern void varinit(void);
 extern char *eval_function(char *fname);
 extern char *user_variable(char *vname);
@@ -347,9 +315,93 @@ extern int next_random(void);
 extern int sindex(char *source, char *pattern);
 extern char *xlat(char *source, char *lookup, char *trans);
 
-/* spell.c */
 extern void spell_init(void);
 extern int spellcheck(const char *word);
 
-/* lock.c */
 extern int lockchk(char *fname);
+
+extern int cmd_undo(int f, int n);
+extern int cmd_redo(int f, int n);
+extern void undo_boundary(void);
+extern void undo_free(struct buffer *bp);
+extern void undo_reset(struct buffer *bp);
+extern void undo_mark_saved(struct buffer *bp);
+extern struct line *undo_cmd_lp;
+extern int undo_cmd_off;
+extern struct buffer *undo_cmd_bp;
+extern int undo_disabled;
+
+extern int detect_language(const char *fname);
+extern void detect_indentation(struct buffer *bp);
+extern void setup_buffer_modes(struct buffer *bp);
+extern int indent_unit(void);
+extern int line_indent_bytes(struct line *lp);
+extern int line_indent_col(struct line *lp);
+extern int find_matching_bracket(struct line *lp, int off, struct line **mlp, int *moff);
+extern int delete_active_region(void);
+extern int self_insert(int c, int n);
+extern int cmd_smart_newline(int f, int n);
+extern int cmd_newline_and_indent(int f, int n);
+extern int cmd_indent_for_tab(int f, int n);
+extern int cmd_outdent(int f, int n);
+extern int cmd_indent_rigidly(int f, int n);
+extern int cmd_indent_region(int f, int n);
+extern int cmd_smart_backspace(int f, int n);
+extern int cmd_smart_delete(int f, int n);
+extern int cmd_duplicate_line(int f, int n);
+extern int cmd_duplicate_line_up(int f, int n);
+extern int cmd_move_line_up(int f, int n);
+extern int cmd_move_line_down(int f, int n);
+extern int cmd_transpose_lines(int f, int n);
+extern int cmd_comment_toggle(int f, int n);
+extern int cmd_kill_whole_line(int f, int n);
+extern int cmd_back_to_indentation(int f, int n);
+extern int cmd_smart_home(int f, int n);
+extern int cmd_delete_horizontal_space(int f, int n);
+extern int cmd_just_one_space(int f, int n);
+extern int cmd_delete_indentation(int f, int n);
+extern int cmd_zap_to_char(int f, int n);
+extern int cmd_mark_whole_buffer(int f, int n);
+extern int cmd_mark_paragraph(int f, int n);
+extern int cmd_toggle_read_only(int f, int n);
+extern int cmd_toggle_overwrite(int f, int n);
+extern int cmd_toggle_auto_pair(int f, int n);
+extern int cmd_toggle_auto_indent(int f, int n);
+extern int cmd_toggle_line_numbers(int f, int n);
+extern int cmd_set_indentation(int f, int n);
+extern int cmd_delete_trailing_whitespace(int f, int n);
+extern int cmd_open_line_below(int f, int n);
+extern int cmd_open_line_above(int f, int n);
+extern int cmd_goto_bracket(int f, int n);
+extern int cmd_forward_sexp(int f, int n);
+extern int cmd_backward_sexp(int f, int n);
+extern int cmd_beginning_of_defun(int f, int n);
+extern int cmd_end_of_defun(int f, int n);
+extern int cmd_transpose_words(int f, int n);
+extern int cmd_recenter(int f, int n);
+extern int cmd_move_to_window_line(int f, int n);
+extern void kill_ring_push(void);
+extern void yank_noted(long bytes);
+extern int cmd_yank_pop(int f, int n);
+extern int cmd_dabbrev_expand(int f, int n);
+extern int cmd_goto_prefix(int f, int n);
+extern int cmd_move_to_column(int f, int n);
+extern int cmd_help_prefix(int f, int n);
+extern int cmd_describe_mode(int f, int n);
+extern int cmd_kmacro_start(int f, int n);
+extern int cmd_kmacro_end_or_call(int f, int n);
+extern int cmd_save_some_buffers(int f, int n);
+extern int cmd_save_buffers_kill_emacs(int f, int n);
+extern int cmd_revert_buffer(int f, int n);
+extern int cmd_find_alternate_file(int f, int n);
+extern int cmd_previous_buffer(int f, int n);
+extern int cmd_ctlc_prefix(int f, int n);
+extern int show_text_buffer(char *bname, const char *const *text);
+extern void display_invalidate(void);
+extern int paste_read_char(void);
+extern void emergency_exit(int signr);
+extern int complete_kind;
+extern char *prefill_text;
+extern struct buffer *last_buffer;
+extern int search_has_upper;
+extern void search_case_update(void);

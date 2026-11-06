@@ -1,11 +1,3 @@
-/*
- *	spell.c
- *
- *	The spell checking, which is hunspell and the search for its
- *	dictionaries.  The editor's whole side of it is spellcheck(),
- *	called for one word at a time by the display.
- */
-
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -20,27 +12,8 @@
 
 #include <hunspell.h>
 
-/*
- * The languages to check against.  A word is spelled correctly if any one
- * of these says so, which is how "colour" and "color" both come out right
- * without having to pick a side.  Another language is a line here.
- *
- * They cannot share one hunspell handle.  Hunspell_add_dic() bolts an
- * extra word list onto an existing one and the two share the first one's
- * affix rules, which is right for a personal word list and wrong for a
- * second language: en_GB.dic's entries carry flags that mean what
- * en_GB.aff says they mean, and en_GB.aff defines sixty-four of them
- * against en_US.aff's twenty-three.  Loaded that way the stems arrive and
- * the inflections quietly do not - "anarchical" and "almsman" are the two
- * that turned up while checking this.
- */
 static const char *languages[] = { "en_US", "en_GB" };
 
-/*
- * Where to look for them.  $DICPATH is hunspell's own variable and is a
- * colon-separated search path, so it is split like $PATH; the rest is
- * where the distributions that were to hand keep theirs.
- */
 static const char *dictionary_path[] = {
 	"/usr/share/hunspell", "/usr/share/myspell",
 	"/usr/local/share/hunspell", "/usr/local/share/myspell",
@@ -54,7 +27,7 @@ int spellcheck(const char *word)
 	for (int i = 0; i < nspellers; i++)
 		if (Hunspell_spell(spellers[i], word))
 			return 1;
-	/* with nothing to check against, nothing is misspelled */
+
 	return nspellers == 0;
 }
 
@@ -65,11 +38,6 @@ static void local_dictionary(Hunhandle *handle, const char *filename)
 		Hunspell_add_dic(handle, filename);
 }
 
-/*
- * One language out of one directory, or NULL if it is not there.  Both
- * halves have to exist: hunspell will hand back a handle for a missing
- * dictionary and then say every word is wrong.
- */
 static Hunhandle *open_dictionary(const char *dir, int dirlen, const char *lang)
 {
 	char aff[NFILEN], dic[NFILEN];
@@ -118,7 +86,6 @@ void spell_init(void)
 	if (nspellers == 0)
 		return;
 
-	/* the personal word list goes on the first, and shares its rules */
 	local_dictionary(spellers[0], ".dictionary");
 	home = getenv("HOME");
 	if (home) {
@@ -131,12 +98,6 @@ void spell_init(void)
 
 #else
 
-/*
- * Built without hunspell.  This is the same answer the real thing gives
- * when it finds no dictionaries to open: with nothing to check against,
- * nothing is misspelled.  Spell mode still exists and still toggles, it
- * just never has anything to say.
- */
 void spell_init(void)
 {
 }

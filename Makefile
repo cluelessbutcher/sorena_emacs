@@ -1,6 +1,3 @@
-# makefile for emacs
-
-# Make the build silent by default
 V =
 
 ifeq ($(strip $(V)),)
@@ -12,36 +9,39 @@ else
 endif
 export E Q
 
-PROGRAM=em
+PROGRAM = emacs
 
-SRC=	basic.c bind.c buffer.c display.c eval.c exec.c file.c fileio.c \
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+DESTDIR ?=
+
+SRC = basic.c bind.c buffer.c display.c eval.c exec.c file.c fileio.c \
 	globals.c input.c isearch.c line.c lock.c main.c names.c \
+	undo.c edit.c help.c \
 	posix.c random.c region.c search.c spawn.c spell.c tcap.c \
 	usage.c utf8.c version.c window.c word.c wrapper.c
 
-OBJ=	$(SRC:.c=.o)
+OBJ = $(SRC:.c=.o)
 
-HDR=	ebind.h efunc.h epath.h estruct.h evar.h globals.h line.h usage.h \
+HDR = ebind.h efunc.h epath.h estruct.h evar.h globals.h line.h usage.h \
 	utf8.h util.h version.h wrapper.h
 
-CC=gcc
-WARNINGS=-Wall -Wstrict-prototypes
-DEFINES=-DPOSIX -D_GNU_SOURCE
+CC ?= cc
+WARNINGS = -Wall -Wstrict-prototypes -Wno-unused-result
+DEFINES = -DPOSIX -D_GNU_SOURCE
+OPTIMIZE ?= -O2 -pipe
+LTO := $(shell echo 'int main(void){return 0;}' | $(CC) -x c -flto=auto - -o /dev/null 2>/dev/null && echo -flto=auto || (echo 'int main(void){return 0;}' | $(CC) -x c -flto - -o /dev/null 2>/dev/null && echo -flto))
+NATIVE ?= 0
+ifeq ($(NATIVE),1)
+OPTIMIZE += -march=native
+endif
+CFLAGS ?= $(OPTIMIZE)
+STD = -std=gnu11
 
-CFLAGS=-O2 $(WARNINGS)
-
-LIBS=ncurses
-BINDIR=$(HOME)/bin
-LIBDIR=$(HOME)/lib
-
-# The spell checking is hunspell, and it is the only optional part of
-# this.  HUNSPELL=0 - or anything that is not 1 - builds an editor that
-# has spell mode and never finds a misspelling.  Asking for it without
-# the library installed says so and builds that editor too, rather than
-# failing halfway through with a missing header.
-HUNSPELL=1
-HAVE_HUNSPELL := $(shell pkg-config --exists hunspell && echo 1)
+LIBS = ncurses
+HUNSPELL ?= 0
 ifeq ($(HUNSPELL),1)
+HAVE_HUNSPELL := $(shell pkg-config --exists hunspell && echo 1)
 ifeq ($(HAVE_HUNSPELL),1)
 LIBS += hunspell
 DEFINES += -DHUNSPELL
@@ -50,46 +50,43 @@ $(warning hunspell not installed, not building with spell checking)
 endif
 endif
 
-PKG_CONFIG_CFLAGS=$(shell pkg-config --cflags $(LIBS))
-ALL_CFLAGS=$(CFLAGS) $(DEFINES) $(PKG_CONFIG_CFLAGS)
-LDLIBS += $(shell pkg-config --libs $(LIBS))
-BUILD_FLAGS=$(ALL_CFLAGS) $(LDLIBS)
+PKG_CONFIG_CFLAGS = $(shell pkg-config --cflags $(LIBS) 2>/dev/null)
+PKG_CONFIG_LIBS = $(shell pkg-config --libs $(LIBS) 2>/dev/null || echo -lncurses)
+ALL_CFLAGS = $(STD) $(CFLAGS) $(LTO) $(WARNINGS) $(DEFINES) $(PKG_CONFIG_CFLAGS)
+LDLIBS += $(PKG_CONFIG_LIBS)
+BUILD_FLAGS = $(ALL_CFLAGS) $(LDLIBS)
+
+all: $(PROGRAM)
 
 $(PROGRAM): $(OBJ)
 	$(E) "  LINK    " $@
-	$(Q) $(CC) $(LDFLAGS) $(DEFINES) -o $@ $(OBJ) $(LDLIBS)
+	$(Q) $(CC) $(CFLAGS) $(LTO) $(LDFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
 .c.o:
 	$(E) "  CC      " $@
-	$(Q) ${CC} ${ALL_CFLAGS} -c $<
+	$(Q) $(CC) $(ALL_CFLAGS) -c $<
 
-# The whole thing builds in a couple of seconds, so it is not worth
-# knowing which object needs which header - they all depend on all of
-# them.  If that ever stops being true, generate the real dependencies
-# during the build with -MMD and include them, rather than going back
-# to keeping a list by hand.
 $(OBJ): $(HDR)
 
-# make watches files and not flags, so installing hunspell or asking
-# for a different -O changes what the next build should contain without
-# touching anything make knows about, and it says "up to date" over the
-# old objects.  Keep the flags in a file, rewritten only when they
-# differ so it does not itself force a build every time.
 .build-flags: FORCE
 	$(Q) echo '$(BUILD_FLAGS)' | cmp -s - $@ || echo '$(BUILD_FLAGS)' > $@
 
 FORCE:
-.PHONY: FORCE
+.PHONY: FORCE all clean install uninstall
 
 $(PROGRAM) $(OBJ): .build-flags
 
 clean:
 	$(E) "  CLEAN"
-	$(Q) rm -f $(PROGRAM) core *.o .build-flags
+	$(Q) rm -f $(PROGRAM) em core *.o .build-flags
 
 install: $(PROGRAM)
-	install em ${BINDIR}
-	cp emacs.hlp ${LIBDIR}
-	cp emacs.rc ${HOME}/.emacsrc
-	chmod 755 ${BINDIR}/em
-	chmod 644 ${LIBDIR}/emacs.hlp ${HOME}/.emacsrc
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(PROGRAM) $(DESTDIR)$(BINDIR)/emacs
+	@echo
+	@echo "Installed $(DESTDIR)$(BINDIR)/emacs"
+	@case ":$$PATH:" in *":$(BINDIR):"*) ;; *) echo "NOTE: $(BINDIR) is not in your PATH - add it to use 'emacs'.";; esac
+	@echo "If your shell still starts another emacs, run: hash -r   (or open a new terminal)"
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/emacs

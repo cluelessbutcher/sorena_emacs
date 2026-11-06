@@ -1,12 +1,13 @@
 #ifndef VERSION_H_
 #define VERSION_H_
 
-#define PROGRAM_NAME "em"
-#define PROGRAM_NAME_LONG "uEmacs/Pk"
+#define PROGRAM_NAME "emacs"
+#define PROGRAM_NAME_LONG "Sorena Emacs"
 
-#define	VERSION	"4.0.15"
+#define	VERSION	"5.0.0"
 
-/* Print the version string. */
+#define PROGRAM_AUTHOR "Sorena Arshiyan"
+
 void version(void);
 
-#endif				/* VERSION_H_ */
+#endif

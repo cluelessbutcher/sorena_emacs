@@ -1,11 +1,3 @@
-/*	eval.c
- *
- *	Expression evaluation functions
- *
- *	written 1986 by Daniel Lawrence
- *	modified by Petri Kutvonen
- */
-
 #include <stdio.h>
 
 #include "estruct.h"
@@ -18,10 +10,8 @@
 
 #define	MAXVARS	255
 
-/* User variables */
 static struct user_variable uv[MAXVARS + 1];
 
-/* Initialize the user variable list. */
 void varinit(void)
 {
 	int i;
@@ -29,50 +19,39 @@ void varinit(void)
 		uv[i].u_name[0] = 0;
 }
 
-/*
- * Evaluate a function.
- *
- * @fname: name of function to evaluate.
- */
 char *eval_function(char *fname)
 {
-	int fnum;				/* index to function to eval */
-	int status;				/* return status */
-	char *tsp;				/* temporary string pointer */
-	char arg1[NSTRING];			/* value of first argument */
-	char arg2[NSTRING];			/* value of second argument */
-	char arg3[NSTRING];			/* value of third argument */
-	static char result[2 * NSTRING];	/* string result */
+	int fnum;
+	int status;
+	char *tsp;
+	char arg1[NSTRING];
+	char arg2[NSTRING];
+	char arg3[NSTRING];
+	static char result[2 * NSTRING];
 
-	/* look the function up in the function table */
-	fname[3] = 0;				/* only first 3 chars significant */
-	mklower(fname, fname);			/* and let it be upper or lower case */
+	fname[3] = 0;
+	mklower(fname, fname);
 	for (fnum = 0; fnum < ARRAY_SIZE(funcs); fnum++)
 		if (strcmp(fname, funcs[fnum].f_name) == 0)
 			break;
 
-	/* return errorm on a bad reference */
 	if (fnum == ARRAY_SIZE(funcs))
 		return error_text;
 
-	/* if needed, retrieve the first argument */
 	if (funcs[fnum].f_type >= MONAMIC) {
 		if ((status = macarg(arg1)) != TRUE)
 			return error_text;
 
-		/* if needed, retrieve the second argument */
 		if (funcs[fnum].f_type >= DYNAMIC) {
 			if ((status = macarg(arg2)) != TRUE)
 				return error_text;
 
-			/* if needed, retrieve the third argument */
 			if (funcs[fnum].f_type >= TRINAMIC)
 				if ((status = macarg(arg3)) != TRUE)
 					return error_text;
 		}
 	}
 
-	/* and now evaluate it! */
 	switch (fnum) {
 	case UFADD:
 		return itoa(atoi(arg1) + atoi(arg2));
@@ -161,20 +140,13 @@ char *eval_function(char *fname)
 		return xlat(arg1, arg2, arg3);
 	}
 
-	exit(-11);				/* never should get here */
+	exit(-11);
 }
 
-/*
- * look up a user var's value
- *
- * char *vname;			name of user variable to fetch
- */
 char *user_variable(char *vname)
 {
+	int vnum;
 
-	int vnum;				/* ordinal number of user var */
-
-	/* scan the list looking for the user var name */
 	for (vnum = 0; vnum < MAXVARS; vnum++) {
 		if (uv[vnum].u_name[0] == 0)
 			return error_text;
@@ -182,27 +154,19 @@ char *user_variable(char *vname)
 			return uv[vnum].u_value;
 	}
 
-	/* return errorm if we run off the end */
 	return error_text;
 }
 
 static char *getkill(void);
 
-/*
- * environment_variable()
- *
- * char *vname;			name of environment variable to retrieve
- */
 char *environment_variable(char *vname)
 {
-	int vnum;				/* ordinal number of var refrenced */
+	int vnum;
 
-	/* scan the list, looking for the referenced name */
 	for (vnum = 0; vnum < ARRAY_SIZE(envars); vnum++)
 		if (strcmp(vname, envars[vnum]) == 0)
 			break;
 
-	/* return errorm on a bad reference */
 	if (vnum == ARRAY_SIZE(envars)) {
 		char *ename = getenv(vname);
 
@@ -212,7 +176,6 @@ char *environment_variable(char *vname)
 			return error_text;
 	}
 
-	/* otherwise, fetch the appropriate value */
 	switch (vnum) {
 	case EVFILLCOL:
 		return itoa(fill_column);
@@ -295,22 +258,18 @@ char *environment_variable(char *vname)
 	case EVSCROLL:
 		return truth_text(0);
 	}
-	exit(-12);				/* again, we should never get here */
+	exit(-12);
 }
 
-/*
- * return some of the contents of the kill buffer
- */
 static char *getkill(void)
 {
-	int size;				/* max number of chars to return */
-	static char value[NSTRING];		/* temp buffer for value */
+	int size;
+	static char value[NSTRING];
 
 	if (kill_head == NULL)
-		/* no kill buffer....just a null string */
+
 		value[0] = 0;
 	else {
-		/* copy in the contents... */
 		if (kill_used < NSTRING)
 			size = kill_used;
 		else
@@ -319,43 +278,31 @@ static char *getkill(void)
 		value[size] = 0;
 	}
 
-	/* and return the constructed value */
 	return value;
 }
 
-/*
- * set a variable
- *
- * int f;		default flag
- * int n;		numeric arg (can overide prompted value)
- */
 int cmd_set(int f, int n)
 {
-	int status;				/* status return */
-	struct variable_description vd;		/* variable num/type */
-	char var[NVSIZE + 1];			/* name of variable to fetch */
-	char value[NSTRING];			/* value to set variable to */
+	int status;
+	struct variable_description vd;
+	char var[NVSIZE + 1];
+	char value[NSTRING];
 
-	/* first get the variable to set.. */
 	if (executing_command_line == FALSE) {
 		status = ask_string("Variable to set: ", &var[0], NVSIZE);
 		if (status != TRUE)
 			return status;
-	} else {				/* macro line argument */
-		/* grab token and skip it */
+	} else {
 		command_string = token(command_string, var, NVSIZE + 1);
 	}
 
-	/* check the legality and find the var */
 	findvar(var, &vd, NVSIZE + 1);
 
-	/* if its not legal....bitch */
 	if (vd.v_type == -1) {
 		msg_printf("%%No such variable as '%s'", var);
 		return FALSE;
 	}
 
-	/* get the value for that variable */
 	if (f == TRUE)
 		strcpy(value, itoa(n));
 	else {
@@ -364,31 +311,21 @@ int cmd_set(int f, int n)
 			return status;
 	}
 
-	/* and set the appropriate value */
 	status = svar(&vd, value);
 
-	/* and return it */
 	return status;
 }
 
-/*
- * Find a variables type and name.
- *
- * @var: name of variable to get.
- * @vd: structure to hold type and pointer.
- * @size: size of variable array.
- */
 void findvar(char *var, struct variable_description *vd, int size)
 {
-	int vnum;				/* subscript in variable arrays */
-	int vtype;				/* type to return */
+	int vnum;
+	int vtype;
 
 	vnum = -1;
  fvar:
 	vtype = -1;
 	switch (var[0]) {
-
-	case '$':				/* check for legal enviromnent var */
+	case '$':
 		for (vnum = 0; vnum < ARRAY_SIZE(envars); vnum++)
 			if (strcmp(&var[1], envars[vnum]) == 0) {
 				vtype = TKENV;
@@ -396,7 +333,7 @@ void findvar(char *var, struct variable_description *vd, int size)
 			}
 		break;
 
-	case '%':				/* check for existing legal user variable */
+	case '%':
 		for (vnum = 0; vnum < MAXVARS; vnum++)
 			if (strcmp(&var[1], uv[vnum].u_name) == 0) {
 				vtype = TKVAR;
@@ -405,7 +342,6 @@ void findvar(char *var, struct variable_description *vd, int size)
 		if (vnum < MAXVARS)
 			break;
 
-		/* create a new one??? */
 		for (vnum = 0; vnum < MAXVARS; vnum++)
 			if (uv[vnum].u_name[0] == 0) {
 				vtype = TKVAR;
@@ -414,44 +350,34 @@ void findvar(char *var, struct variable_description *vd, int size)
 			}
 		break;
 
-	case '&':				/* indirect operator? */
+	case '&':
 		var[4] = 0;
 		if (strcmp(&var[1], "ind") == 0) {
-			/* grab token, and eval it */
 			command_string = token(command_string, var, size);
 			getval(var, var, size);
 			goto fvar;
 		}
 	}
 
-	/* return the results */
 	vd->v_num = vnum;
 	vd->v_type = vtype;
 	return;
 }
 
-/*
- * Set a variable.
- *
- * @var: variable to set.
- * @value: value to set to.
- */
 int svar(struct variable_description *var, char *value)
 {
-	int vnum;				/* ordinal number of var refrenced */
-	int vtype;				/* type of variable to set */
-	int status;				/* status return */
-	int c;					/* translated character */
-	char *sp;				/* scratch string pointer */
+	int vnum;
+	int vtype;
+	int status;
+	int c;
+	char *sp;
 
-	/* simplify the vd structure (we are gonna look at it a lot) */
 	vnum = var->v_num;
 	vtype = var->v_type;
 
-	/* and set the appropriate value */
 	status = TRUE;
 	switch (vtype) {
-	case TKVAR:				/* set a user variable */
+	case TKVAR:
 		if (uv[vnum].u_value != NULL)
 			free(uv[vnum].u_value);
 		sp = malloc(strlen(value) + 1);
@@ -461,8 +387,8 @@ int svar(struct variable_description *var, char *value)
 		uv[vnum].u_value = sp;
 		break;
 
-	case TKENV:				/* set an environment variable */
-		status = TRUE;			/* by default */
+	case TKENV:
+		status = TRUE;
 		switch (vnum) {
 		case EVFILLCOL:
 			fill_column = atoi(value);
@@ -509,7 +435,7 @@ int svar(struct variable_description *var, char *value)
 			last_key = atoi(value);
 			break;
 		case EVCURCHAR:
-			delete_characters(1, FALSE);	/* delete 1 char */
+			delete_characters(1, FALSE);
 			c = atoi(value);
 			if (c == '\n')
 				insert_newline();
@@ -587,61 +513,43 @@ int svar(struct variable_description *var, char *value)
 	return status;
 }
 
-/*
- * itoa:
- *	integer to ascii string.......... This is too
- *	inconsistant to use the system's
- *
- * int i;		integer to translate to a string
- */
 char *itoa(int i)
 {
-	int digit;				/* current digit being used */
-	char *sp;				/* pointer into result */
-	int sign;				/* sign of resulting number */
-	static char result[INTWIDTH + 1];	/* resulting string */
+	int digit;
+	char *sp;
+	int sign;
+	static char result[INTWIDTH + 1];
 
-	/* record the sign... */
 	sign = 1;
 	if (i < 0) {
 		sign = -1;
 		i = -i;
 	}
 
-	/* and build the string (backwards!) */
 	sp = result + INTWIDTH;
 	*sp = 0;
 	do {
 		digit = i % 10;
-		*(--sp) = '0' + digit;		/* and install the new digit */
+		*(--sp) = '0' + digit;
 		i = i / 10;
 	} while (i);
 
-	/* and fix the sign */
 	if (sign == -1) {
-		*(--sp) = '-';			/* and install the minus sign */
+		*(--sp) = '-';
 	}
 
 	return sp;
 }
 
-/*
- * find the type of a passed token
- *
- * char *token;		token to analyze
- */
 int token_type(char *token)
 {
-	char c;					/* first char in token */
+	char c;
 
-	/* grab the first char (this is all we need) */
 	c = *token;
 
-	/* no blanks!!! */
 	if (c == 0)
 		return TKNUL;
 
-	/* a numeric literal? */
 	if (c >= '0' && c <= '9')
 		return TKLIT;
 
@@ -669,26 +577,21 @@ int token_type(char *token)
 	}
 }
 
-/*
- * find the value of a token
- *
- * char *token;		token to evaluate
- */
 static char *internal_getval(char *token)
 {
-	int status;				/* error return */
-	struct buffer *bp;			/* temp buffer pointer */
-	int blen;				/* length of buffer argument */
-	int distmp;				/* temporary discmd flag */
-	static char buf[NSTRING];		/* string buffer for some returns */
+	int status;
+	struct buffer *bp;
+	int blen;
+	int distmp;
+	static char buf[NSTRING];
 
 	switch (token_type(token)) {
 	case TKNUL:
 		return "";
 
-	case TKARG:				/* interactive argument */
+	case TKARG:
 		getval(token + 1, token, -1);
-		distmp = display_commands;		/* echo it always! */
+		distmp = display_commands;
 		display_commands = TRUE;
 		status = getstring(token, buf, NSTRING, char_to_keycode('\n'));
 		display_commands = distmp;
@@ -696,44 +599,36 @@ static char *internal_getval(char *token)
 			return error_text;
 		return buf;
 
-	case TKBUF:				/* buffer contents fetch */
+	case TKBUF:
 
-		/* grab the right buffer */
 		getval(token + 1, token, -1);
 		bp = find_buffer(token, FALSE, 0);
 		if (bp == NULL)
 			return error_text;
 
-		/* if the buffer is displayed, get the window
-		   vars instead of the buffer vars */
 		if (bp->b_nwnd > 0) {
 			curbp->b_dotp = curwp->w_dotp;
 			curbp->b_doto = curwp->w_doto;
 		}
 
-		/* make sure we are not at the end */
 		if (bp->b_linep == bp->b_dotp)
 			return error_text;
 
-		/* grab the line as an argument */
 		blen = bp->b_dotp->l_used - bp->b_doto;
 		if (blen >= NSTRING)
 			blen = NSTRING - 1;
 		strncpy(buf, bp->b_dotp->l_text + bp->b_doto, blen);
 		buf[blen] = 0;
 
-		/* and step the buffer's line ptr ahead a line */
 		bp->b_dotp = bp->b_dotp->l_fp;
 		bp->b_doto = 0;
 
-		/* if displayed buffer, reset window ptr vars */
 		if (bp->b_nwnd > 0) {
 			curwp->w_dotp = curbp->b_dotp;
 			curwp->w_doto = 0;
 			curwp->w_flag |= WFMOVE;
 		}
 
-		/* and return the spoils */
 		return buf;
 
 	case TKVAR:
@@ -763,28 +658,16 @@ char *getval(char *token, char *dst, int size)
 	return dst;
 }
 
-/*
- * convert a string to a numeric logical
- *
- * char *val;		value to check for truth_value
- */
 int truth_value(char *val)
 {
-	/* check for logical values */
 	if (val[0] == 'F')
 		return FALSE;
 	if (val[0] == 'T')
 		return TRUE;
 
-	/* check for numeric truth (!= 0) */
 	return (atoi(val) != 0);
 }
 
-/*
- * numeric logical to string logical
- *
- * int val;		value to translate
- */
 char *truth_text(int val)
 {
 	if (val)
@@ -793,11 +676,6 @@ char *truth_text(int val)
 		return false_text;
 }
 
-/*
- * make a string upper case
- *
- * char *str;		string to upper case
- */
 char *mkupper(const char *str, char *res)
 {
 	char *out = res, c;
@@ -811,11 +689,6 @@ char *mkupper(const char *str, char *res)
 	return res;
 }
 
-/*
- * make a string lower case
- *
- * char *str;		string to lower case
- */
 char *mklower(const char *str, char *res)
 {
 	char *out = res, c;
@@ -830,39 +703,25 @@ char *mklower(const char *str, char *res)
 	return res;
 }
 
-/*
- * take the absolute value of an integer
- */
 int abs(int x)
 {
 	return x < 0 ? -x : x;
 }
 
-/*
- * returns a random integer
- */
 int next_random(void)
 {
 	random_seed = abs(random_seed * 1721 + 10007);
 	return random_seed;
 }
 
-/*
- * find pattern within source
- *
- * char *source;	source string to search
- * char *pattern;	string to look for
- */
 int sindex(char *source, char *pattern)
 {
-	char *sp;				/* ptr to current position to scan */
-	char *csp;				/* ptr to source string during comparison */
-	char *cp;				/* ptr to place to check for equality */
+	char *sp;
+	char *csp;
+	char *cp;
 
-	/* scanning through the source string */
 	sp = source;
 	while (*sp) {
-		/* scan through the pattern */
 		cp = pattern;
 		csp = sp;
 		while (*cp) {
@@ -872,35 +731,24 @@ int sindex(char *source, char *pattern)
 			++csp;
 		}
 
-		/* was it a match? */
 		if (*cp == 0)
 			return (int)(sp - source) + 1;
 		++sp;
 	}
 
-	/* no match at all.. */
 	return 0;
 }
 
-/*
- * Filter a string through a translation table
- *
- * char *source;	string to filter
- * char *lookup;	characters to translate
- * char *trans;		resulting translated characters
- */
 char *xlat(char *source, char *lookup, char *trans)
 {
-	char *sp;				/* pointer into source table */
-	char *lp;				/* pointer into lookup table */
-	char *rp;				/* pointer into result */
-	static char result[NSTRING];		/* temporary result */
+	char *sp;
+	char *lp;
+	char *rp;
+	static char result[NSTRING];
 
-	/* scan source string */
 	sp = source;
 	rp = result;
 	while (*sp) {
-		/* scan lookup table for a match */
 		lp = lookup;
 		while (*lp) {
 			if (*sp == *lp) {
@@ -910,13 +758,11 @@ char *xlat(char *source, char *lookup, char *trans)
 			++lp;
 		}
 
-		/* no match, copy in the source char untranslated */
 		*rp++ = *sp;
 
  xnext:	++sp;
 	}
 
-	/* terminate and return the result */
 	*rp = 0;
 	return result;
 }

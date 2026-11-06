@@ -2,7 +2,6 @@
 
 #include <stdlib.h>
 
-/* Function copyright: git */
 int xmkstemp(char *template)
 {
 	int fd;

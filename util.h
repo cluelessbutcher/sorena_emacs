@@ -3,7 +3,6 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 
-/* Safe zeroing, no complaining about overlap */
 static inline void mystrscpy(char *dst, const char *src, int size)
 {
 	if (!size)
@@ -17,7 +16,6 @@ static inline void mystrscpy(char *dst, const char *src, int size)
 	*dst = 0;
 }
 
-/* Append to it, with 'size' being the whole of dst rather than what is left */
 static inline void mystrscat(char *dst, const char *src, int size)
 {
 	int len = strlen(dst);
@@ -26,8 +24,6 @@ static inline void mystrscat(char *dst, const char *src, int size)
 		mystrscpy(dst + len, src, size - len);
 }
 
-// Overly simplistic "how does the column number change
-// based on character 'c'" function
 static inline int next_column(int old, unicode_t c)
 {
 	if (c == '\t')
@@ -42,4 +38,4 @@ static inline int next_column(int old, unicode_t c)
 	return old + 1;
 }
 
-#endif				/* UTIL_H_ */
+#endif

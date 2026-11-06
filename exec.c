@@ -1,12 +1,3 @@
-/*	exec.c
- *
- *	This file is for functions dealing with execution of
- *	commands, command lines, buffers, files and startup files.
- *
- *	written 1986 by Daniel Lawrence
- *	modified by Petri Kutvonen
- */
-
 #include <stdio.h>
 
 #include "estruct.h"
@@ -14,40 +5,24 @@
 #include "efunc.h"
 #include "line.h"
 
-/*
- * Execute a named command even if it is not bound.
- */
 int cmd_execute_named_command(int f, int n)
 {
-	fn_t kfunc;				/* ptr to the requexted function to bind to */
+	fn_t kfunc;
 
-	/* prompt the user to type a named command */
-	msg_printf(": ");
-
-	/* and now get the function name to execute */
-	kfunc = getname();
+	kfunc = getname(f ? "C-u M-x " : "M-x ");
 	if (kfunc == NULL) {
 		msg_printf("(No such function)");
 		return FALSE;
 	}
 
-	/* and then execute the command */
 	return kfunc(f, n);
 }
 
-/*
- * execcmd:
- *	Execute a command line command to be typed in
- *	by the user
- *
- * int f, n;		default Flag and Numeric argument
- */
 int cmd_execute_command_line(int f, int n)
 {
-	int status;				/* status return */
-	char cmdstr[NSTRING];			/* string holding command to execute */
+	int status;
+	char cmdstr[NSTRING];
 
-	/* get the line wanted */
 	if ((status = ask_string(": ", cmdstr, NSTRING)) != TRUE)
 		return status;
 
@@ -55,98 +30,68 @@ int cmd_execute_command_line(int f, int n)
 	return docmd(cmdstr);
 }
 
-/*
- * docmd:
- *	take a passed string as a command line and translate
- * 	it to be executed as a command. This function will be
- *	used by execute-command-line and by all source and
- *	startup files. Lastflag/thisflag is also updated.
- *
- *	format of the command line is:
- *
- *		{# arg} <command-name> {<argument string(s)>}
- *
- * char *cline;		command line to execute
- */
 int docmd(char *cline)
 {
-	int f;					/* default argument flag */
-	int n;					/* numeric repeat value */
-	fn_t fnc;				/* function to execute */
-	int status;				/* return status of function */
-	int oldcle;				/* old contents of clexec flag */
-	char *oldestr;				/* original exec string */
-	char tkn[NSTRING];			/* next token off of command line */
+	int f;
+	int n;
+	fn_t fnc;
+	int status;
+	int oldcle;
+	char *oldestr;
+	char tkn[NSTRING];
 
-	/* if we are scanning and not executing..go back here */
 	if (if_level)
 		return TRUE;
 
-	oldestr = command_string;			/* save last ptr to string to execute */
-	command_string = cline;			/* and set this one as current */
+	oldestr = command_string;
+	command_string = cline;
 
-	/* first set up the default command values */
 	f = FALSE;
 	n = 1;
 	lastflag = thisflag;
 	thisflag = 0;
 
-	if ((status = macarg(tkn)) != TRUE) {	/* and grab the first token */
+	if ((status = macarg(tkn)) != TRUE) {
 		command_string = oldestr;
 		return status;
 	}
 
-	/* process leadin argument */
 	if (token_type(tkn) != TKCMD) {
 		f = TRUE;
 		getval(tkn, tkn, sizeof(tkn));
 		n = atoi(tkn);
 
-		/* and now get the command to execute */
 		if ((status = macarg(tkn)) != TRUE) {
 			command_string = oldestr;
 			return status;
 		}
 	}
 
-	/* and match the token to see if it exists */
 	if ((fnc = fncmatch(tkn)) == NULL) {
 		msg_printf("(No such Function)");
 		command_string = oldestr;
 		return FALSE;
 	}
 
-	/* save the arguments and go execute the command */
-	oldcle = executing_command_line;			/* save old clexec flag */
-	executing_command_line = TRUE;				/* in cline execution */
-	status = (*fnc) (f, n);			/* call the function */
-	command_status = status;			/* save the status */
-	executing_command_line = oldcle;			/* restore clexec flag */
+	oldcle = executing_command_line;
+	executing_command_line = TRUE;
+	status = (*fnc) (f, n);
+	command_status = status;
+	executing_command_line = oldcle;
 	command_string = oldestr;
 	return status;
 }
 
-/*
- * token:
- *	chop a token off a string
- *	return a pointer past the token
- *
- * char *src, *tok;	source string, destination token string
- * int size;		maximum size of token
- */
 char *token(char *src, char *tok, int size)
 {
-	int quotef;				/* is the current string quoted? */
-	char c;					/* temporary character */
+	int quotef;
+	char c;
 
-	/* first scan past any whitespace in the source string */
 	while (*src == ' ' || *src == '\t')
 		++src;
 
-	/* scan through the source string */
 	quotef = FALSE;
 	while (*src) {
-		/* process special characters */
 		if (*src == '~') {
 			++src;
 			if (*src == 0)
@@ -174,7 +119,6 @@ char *token(char *src, char *tok, int size)
 				*tok++ = c;
 			}
 		} else {
-			/* check for the end of the token */
 			if (quotef) {
 				if (*src == '"')
 					break;
@@ -183,276 +127,180 @@ char *token(char *src, char *tok, int size)
 					break;
 			}
 
-			/* set quote mode if quote found */
 			if (*src == '"')
 				quotef = TRUE;
 
-			/* record the character */
 			c = *src++;
 			if (--size > 0)
 				*tok++ = c;
 		}
 	}
 
-	/* terminate the token and exit */
 	if (*src)
 		++src;
 	*tok = 0;
 	return src;
 }
 
-/*
- * get a macro line argument
- *
- * char *tok;		buffer to place argument
- */
 int macarg(char *tok)
 {
-	int savcle;				/* buffer to store original clexec */
+	int savcle;
 	int status;
 
-	savcle = executing_command_line;			/* save execution mode */
-	executing_command_line = TRUE;				/* get the argument */
+	savcle = executing_command_line;
+	executing_command_line = TRUE;
 	status = nextarg("", tok, NSTRING, char_to_keycode('\n'));
-	executing_command_line = savcle;			/* restore execution mode */
+	executing_command_line = savcle;
 	return status;
 }
 
-/*
- * nextarg:
- *	get the next argument
- *
- * char *prompt;		prompt to use if we must be interactive
- * char *buffer;		buffer to put token into
- * int size;			size of the buffer
- * int terminator;		terminating char to be used on interactive fetch
- */
 int nextarg(char *prompt, char *buffer, int size, int terminator)
 {
-	/* if we are interactive, go get it! */
 	if (executing_command_line == FALSE)
 		return getstring(prompt, buffer, size, terminator);
 
-	/* grab token and advance past */
 	command_string = token(command_string, buffer, size);
 
-	/* evaluate it */
 	getval(buffer, buffer, size);
 	return TRUE;
 }
 
-/*
- * storemac:
- *	Set up a macro buffer and flag to store all
- *	executed command lines there
- *
- * int f;		default flag
- * int n;		macro number to use
- */
 int cmd_store_macro(int f, int n)
 {
-	struct buffer *bp;			/* pointer to macro buffer */
-	char bname[NBUFN];			/* name of buffer to use */
+	struct buffer *bp;
+	char bname[NBUFN];
 
-	/* must have a numeric argument to this function */
 	if (f == FALSE) {
 		msg_printf("No macro specified");
 		return FALSE;
 	}
 
-	/* range check the macro number */
 	if (n < 1 || n > 40) {
 		msg_printf("Macro number out of range");
 		return FALSE;
 	}
 
-	/* construct the macro buffer name */
 	strcpy(bname, "*Macro xx*");
 	bname[7] = '0' + (n / 10);
 	bname[8] = '0' + (n % 10);
 
-	/* set up the new macro buffer */
 	if ((bp = find_buffer(bname, TRUE, BFINVS)) == NULL) {
 		msg_printf("Can not create macro");
 		return FALSE;
 	}
 
-	/* and make sure it is empty */
 	clear_buffer(bp);
 
-	/* and set the macro store pointers to it */
 	storing_macro = TRUE;
 	store_buffer = bp;
 	return TRUE;
 }
 
-/*
- * storeproc:
- *	Set up a procedure buffer and flag to store all
- *	executed command lines there
- *
- * int f;		default flag
- * int n;		macro number to use
- */
 int cmd_store_procedure(int f, int n)
 {
-	struct buffer *bp;			/* pointer to macro buffer */
-	int status;				/* return status */
-	char bname[NBUFN];			/* name of buffer to use */
+	struct buffer *bp;
+	int status;
+	char bname[NBUFN];
 
-	/* a numeric argument means its a numbered macro */
 	if (f == TRUE)
 		return cmd_store_macro(f, n);
 
-	/* get the name of the procedure */
 	if ((status = ask_string("Procedure name: ", &bname[1], NBUFN - 2)) != TRUE)
 		return status;
 
-	/* construct the macro buffer name */
 	bname[0] = '*';
 	strcat(bname, "*");
 
-	/* set up the new macro buffer */
 	if ((bp = find_buffer(bname, TRUE, BFINVS)) == NULL) {
 		msg_printf("Can not create macro");
 		return FALSE;
 	}
 
-	/* and make sure it is empty */
 	clear_buffer(bp);
 
-	/* and set the macro store pointers to it */
 	storing_macro = TRUE;
 	store_buffer = bp;
 	return TRUE;
 }
 
-/*
- * execproc:
- *	Execute a procedure
- *
- * int f, n;		default flag and numeric arg
- */
 int cmd_execute_procedure(int f, int n)
 {
-	struct buffer *bp;			/* ptr to buffer to execute */
-	int status;				/* status return */
-	char bufn[NBUFN + 2];			/* name of buffer to execute */
+	struct buffer *bp;
+	int status;
+	char bufn[NBUFN + 2];
 
-	/* find out what buffer the user wants to execute */
 	if ((status = ask_string("Execute procedure: ", &bufn[1], NBUFN)) != TRUE)
 		return status;
 
-	/* construct the buffer name */
 	bufn[0] = '*';
 	strcat(bufn, "*");
 
-	/* find the pointer to that buffer */
 	if ((bp = find_buffer(bufn, FALSE, 0)) == NULL) {
 		msg_printf("No such procedure");
 		return FALSE;
 	}
 
-	/* and now execute it as asked */
 	while (n-- > 0)
 		if ((status = dobuf(bp)) != TRUE)
 			return status;
 	return TRUE;
 }
 
-/*
- * execbuf:
- *	Execute the contents of a buffer of commands
- *
- * int f, n;		default flag and numeric arg
- */
 int cmd_execute_buffer(int f, int n)
 {
-	struct buffer *bp;			/* ptr to buffer to execute */
-	int status;				/* status return */
-	char bufn[NSTRING];			/* name of buffer to execute */
+	struct buffer *bp;
+	int status;
+	char bufn[NSTRING];
 
-	/* find out what buffer the user wants to execute */
 	if ((status = ask_string("Execute buffer: ", bufn, NBUFN)) != TRUE)
 		return status;
 
-	/* find the pointer to that buffer */
 	if ((bp = find_buffer(bufn, FALSE, 0)) == NULL) {
 		msg_printf("No such buffer");
 		return FALSE;
 	}
 
-	/* and now execute it as asked */
 	while (n-- > 0)
 		if ((status = dobuf(bp)) != TRUE)
 			return status;
 	return TRUE;
 }
 
-/*
- * dobuf:
- *	execute the contents of the buffer pointed to
- *	by the passed BP
- *
- *	Directives start with a "!" and include:
- *
- *	!endm		End a macro
- *	!if (cond)	conditional execution
- *	!else
- *	!endif
- *	!return		Return (terminating current macro)
- *	!goto <label>	Jump to a label in the current macro
- *	!force		Force macro to continue...even if command fails
- *	!while (cond)	Execute a loop if the condition is true
- *	!endwhile
- *
- *	Line Labels begin with a "*" as the first nonblank char, like:
- *
- *	*LBL01
- *
- * struct buffer *bp;		buffer to execute
- */
 int dobuf(struct buffer *bp)
 {
-	int status;				/* status return */
-	struct line *lp;			/* pointer to line to execute */
-	struct line *hlp;			/* pointer to line header */
-	struct line *glp;			/* line to goto */
-	struct line *mp;			/* Macro line storage temp */
-	int dirnum;				/* directive index */
-	int linlen;				/* length of line to execute */
-	int i;					/* index */
-	int force;				/* force TRUE result? */
-	struct window *wp;			/* ptr to windows to scan */
-	struct while_block *whlist;		/* ptr to !WHILE list */
-	struct while_block *scanner;		/* ptr during scan */
-	struct while_block *whtemp;		/* temporary ptr to a struct while_block */
-	char *einit;				/* initial value of eline */
-	char *eline;				/* text of line to execute */
-	char tkn[NSTRING];			/* buffer to evaluate an expresion in */
+	int status;
+	struct line *lp;
+	struct line *hlp;
+	struct line *glp;
+	struct line *mp;
+	int dirnum;
+	int linlen;
+	int i;
+	int force;
+	struct window *wp;
+	struct while_block *whlist;
+	struct while_block *scanner;
+	struct while_block *whtemp;
+	char *einit;
+	char *eline;
+	char tkn[NSTRING];
 
-	/* clear IF level flags/while ptr */
 	if_level = 0;
 	whlist = NULL;
 	scanner = NULL;
 
-	/* scan the buffer to execute, building WHILE header blocks */
 	hlp = bp->b_linep;
 	lp = hlp->l_fp;
 	while (lp != hlp) {
-		/* scan the current line */
 		eline = lp->l_text;
 		i = lp->l_used;
 
-		/* trim leading whitespace */
 		while (i-- > 0 && (*eline == ' ' || *eline == '\t'))
 			++eline;
 
-		/* if theres nothing here, don't bother */
 		if (i <= 0)
 			goto nxtscan;
 
-		/* if is a while directive, make a block... */
 		if (eline[0] == '!' && eline[1] == 'w' && eline[2] == 'h') {
 			whtemp = (struct while_block *)
 			    malloc(sizeof(struct while_block));
@@ -468,7 +316,6 @@ int dobuf(struct buffer *bp)
 			scanner = whtemp;
 		}
 
-		/* if is a BREAK directive, make a block... */
 		if (eline[0] == '!' && eline[1] == 'b' && eline[2] == 'r') {
 			if (scanner == NULL) {
 				msg_printf("%%!BREAK outside of any !WHILE loop");
@@ -484,16 +331,13 @@ int dobuf(struct buffer *bp)
 			scanner = whtemp;
 		}
 
-		/* if it is an endwhile directive, record the spot... */
 		if (eline[0] == '!' && strncmp(&eline[1], "endw", 4) == 0) {
 			if (scanner == NULL) {
 				msg_printf
 				    ("%%!ENDWHILE with no preceding !WHILE in '%s'", bp->b_bname);
 				goto failexit;
 			}
-			/* move top records from the scanner list to the
-			   whlist until we have moved all BREAK records
-			   and one WHILE record */
+
 			do {
 				scanner->w_end = lp;
 				whtemp = whlist;
@@ -503,24 +347,20 @@ int dobuf(struct buffer *bp)
 			} while (whlist->w_type == BTBREAK);
 		}
 
- nxtscan:					/* on to the next line */
+ nxtscan:
 		lp = lp->l_fp;
 	}
 
-	/* while and endwhile should match! */
 	if (scanner != NULL) {
 		msg_printf("%%!WHILE with no matching !ENDWHILE in '%s'", bp->b_bname);
 		goto failexit;
 	}
 
-	/* let the first command inherit the flags from the last one.. */
 	thisflag = lastflag;
 
-	/* starting at the beginning of the buffer */
 	hlp = bp->b_linep;
 	lp = hlp->l_fp;
 	while (lp != hlp) {
-		/* allocate eline and copy macro line to it */
 		linlen = lp->l_used;
 		if ((einit = eline = malloc(linlen + 1)) == NULL) {
 			msg_printf("%%Out of Memory during macro execution");
@@ -528,57 +368,46 @@ int dobuf(struct buffer *bp)
 			return FALSE;
 		}
 		strncpy(eline, lp->l_text, linlen);
-		eline[linlen] = 0;		/* make sure it ends */
+		eline[linlen] = 0;
 
-		/* trim leading whitespace */
 		while (*eline == ' ' || *eline == '\t')
 			++eline;
 
-		/* dump comments and blank lines */
 		if (*eline == ';' || *eline == 0)
 			goto onward;
 
-		/* Parse directives here.... */
 		dirnum = -1;
 		if (*eline == '!') {
-			/* Find out which directive this is */
 			++eline;
 			for (dirnum = 0; dirnum < NUMDIRS; dirnum++)
 				if (strncmp(eline, directive_names[dirnum], strlen(directive_names[dirnum])) == 0)
 					break;
 
-			/* and bitch if it's illegal */
 			if (dirnum == NUMDIRS) {
 				msg_printf("%%Unknown Directive");
 				freewhile(whlist);
 				return FALSE;
 			}
 
-			/* service only the !ENDM macro here */
 			if (dirnum == DENDM) {
 				storing_macro = FALSE;
 				store_buffer = NULL;
 				goto onward;
 			}
 
-			/* restore the original eline.... */
 			--eline;
 		}
 
-		/* if macro store is on, just salt this away */
 		if (storing_macro) {
-			/* allocate the space for the line */
 			linlen = strlen(eline);
 			if ((mp = line_alloc(linlen)) == NULL) {
 				msg_printf("Out of memory while storing macro");
 				return FALSE;
 			}
 
-			/* copy the text into the new line */
 			for (i = 0; i < linlen; ++i)
 				lputc(mp, i, eline[i]);
 
-			/* attach the line to the end of the buffer */
 			store_buffer->b_linep->l_bp->l_fp = mp;
 			mp->l_bp = store_buffer->b_linep->l_bp;
 			store_buffer->b_linep->l_bp = mp;
@@ -588,20 +417,17 @@ int dobuf(struct buffer *bp)
 
 		force = FALSE;
 
-		/* dump comments */
 		if (*eline == '*')
 			goto onward;
 
-		/* now, execute directives */
 		if (dirnum != -1) {
-			/* skip past the directive */
 			while (*eline && *eline != ' ' && *eline != '\t')
 				++eline;
 			command_string = eline;
 
 			switch (dirnum) {
-			case DIF:		/* IF directive */
-				/* grab the value of the logical exp */
+			case DIF:
+
 				if (if_level == 0) {
 					if (macarg(tkn) != TRUE)
 						goto eexec;
@@ -611,22 +437,19 @@ int dobuf(struct buffer *bp)
 					++if_level;
 				goto onward;
 
-			case DWHILE:		/* WHILE directive */
-				/* grab the value of the logical exp */
+			case DWHILE:
+
 				if (if_level == 0) {
 					if (macarg(tkn) != TRUE)
 						goto eexec;
 					if (truth_value(tkn) == TRUE)
 						goto onward;
 				}
-				/* drop down and act just like !BREAK */
 
-			case DBREAK:		/* BREAK directive */
+			case DBREAK:
 				if (dirnum == DBREAK && if_level)
 					goto onward;
 
-				/* jump down to the endwhile */
-				/* find the right while loop */
 				whtemp = whlist;
 				while (whtemp) {
 					if (whtemp->w_begin == lp)
@@ -640,27 +463,24 @@ int dobuf(struct buffer *bp)
 					return FALSE;
 				}
 
-				/* reset the line pointer back.. */
 				lp = whtemp->w_end;
 				goto onward;
 
-			case DELSE:		/* ELSE directive */
+			case DELSE:
 				if (if_level == 1)
 					--if_level;
 				else if (if_level == 0)
 					++if_level;
 				goto onward;
 
-			case DENDIF:		/* ENDIF directive */
+			case DENDIF:
 				if (if_level)
 					--if_level;
 				goto onward;
 
-			case DGOTO:		/* GOTO directive */
-				/* .....only if we are currently executing */
-				if (if_level == 0) {
+			case DGOTO:
 
-					/* grab label to jump to */
+				if (if_level == 0) {
 					eline = token(eline, goto_label, NPAT);
 					linlen = strlen(goto_label);
 					glp = hlp->l_fp;
@@ -679,17 +499,16 @@ int dobuf(struct buffer *bp)
 				}
 				goto onward;
 
-			case DRETURN:		/* RETURN directive */
+			case DRETURN:
 				if (if_level == 0)
 					goto eexec;
 				goto onward;
 
-			case DENDWHILE:	/* ENDWHILE directive */
+			case DENDWHILE:
 				if (if_level) {
 					--if_level;
 					goto onward;
 				} else {
-					/* find the right while loop */
 					whtemp = whlist;
 					while (whtemp) {
 						if (whtemp->w_type ==
@@ -704,36 +523,30 @@ int dobuf(struct buffer *bp)
 						return FALSE;
 					}
 
-					/* reset the line pointer back.. */
 					lp = whtemp->w_begin->l_bp;
 					goto onward;
 				}
 
-			case DFORCE:		/* FORCE directive */
+			case DFORCE:
 				force = TRUE;
-
 			}
 		}
 
-		/* execute the statement */
 		status = docmd(eline);
-		if (force)			/* force the status */
+		if (force)
 			status = TRUE;
 
-		/* check for a command error */
 		if (status != TRUE) {
-			/* look if buffer is showing */
 			wp = window_head;
 			while (wp != NULL) {
 				if (wp->w_bufp == bp) {
-					/* and point it */
 					wp->w_dotp = lp;
 					wp->w_doto = 0;
 					wp->w_flag |= WFHARD;
 				}
 				wp = wp->w_wndp;
 			}
-			/* in any case set the buffer . */
+
 			bp->b_dotp = lp;
 			bp->b_doto = 0;
 			free(einit);
@@ -742,22 +555,17 @@ int dobuf(struct buffer *bp)
 			return status;
 		}
 
- onward:					/* on to the next line */
+ onward:
 		free(einit);
 		lp = lp->l_fp;
 	}
 
- eexec:					/* exit the current function */
+ eexec:
 	if_level = 0;
 	freewhile(whlist);
 	return TRUE;
 }
 
-/*
- * free a list of while block pointers
- *
- * struct while_block *wp;		head of structure to free
- */
 void freewhile(struct while_block *wp)
 {
 	if (wp == NULL)
@@ -767,28 +575,20 @@ void freewhile(struct while_block *wp)
 	free(wp);
 }
 
-/*
- * execute a series of commands in a file
- *
- * int f, n;		default flag and numeric arg to pass on to file
- */
 int cmd_execute_file(int f, int n)
 {
-	int status;				/* return status of name query */
-	char fname[NSTRING];			/* name of file to execute */
-	char *fspec;				/* full file spec */
+	int status;
+	char fname[NSTRING];
+	char *fspec;
 
 	if ((status = ask_string("File to execute: ", fname, NSTRING - 1)) != TRUE)
 		return status;
 
-	/* look up the path for the file */
-	fspec = lookup_file(fname, FALSE);		/* used to by TRUE, P.K. */
+	fspec = lookup_file(fname, FALSE);
 
-	/* if it isn't around */
 	if (fspec == NULL)
 		return FALSE;
 
-	/* otherwise, execute it */
 	while (n-- > 0)
 		if ((status = dofile(fspec)) != TRUE)
 			return status;
@@ -796,69 +596,50 @@ int cmd_execute_file(int f, int n)
 	return TRUE;
 }
 
-/*
- * dofile:
- *	yank a file into a buffer and execute it
- *	if there are no errors, delete the buffer on exit
- *
- * char *fname;		file name to execute
- */
 int dofile(char *fname)
 {
-	struct buffer *bp;			/* buffer to place file to exeute */
-	struct buffer *cb;			/* temp to hold current buf while we read */
-	int status;				/* results of various calls */
-	char bname[NBUFN];			/* name of buffer */
+	struct buffer *bp;
+	struct buffer *cb;
+	int status;
+	char bname[NBUFN];
 
-	makename(bname, fname);			/* derive the name of the buffer */
-	unique_buffer_name(bname);				/* make sure we don't stomp things */
-	if ((bp = find_buffer(bname, TRUE, 0)) == NULL)	/* get the needed buffer */
+	makename(bname, fname);
+	unique_buffer_name(bname);
+	if ((bp = find_buffer(bname, TRUE, 0)) == NULL)
 		return FALSE;
 
-	bp->b_mode = MDVIEW;			/* mark the buffer as read only */
-	cb = curbp;				/* save the old buffer */
-	curbp = bp;				/* make this one current */
-	/* and try to read in the file to execute */
+	bp->b_mode = MDVIEW;
+	cb = curbp;
+	curbp = bp;
+
 	if ((status = readin(fname, FALSE)) != TRUE) {
-		curbp = cb;			/* restore the current buffer */
+		curbp = cb;
 		return status;
 	}
 
-	/* go execute it! */
-	curbp = cb;				/* restore the current buffer */
+	curbp = cb;
 	if ((status = dobuf(bp)) != TRUE)
 		return status;
 
-	/* if not displayed, remove the now unneeded buffer and exit */
 	if (bp->b_nwnd == 0)
 		destroy_buffer(bp);
 	return TRUE;
 }
 
-/*
- * execute_numbered_macro:
- *	Execute the contents of a numbered buffer
- *
- * int f, n;		default flag and numeric arg
- * int number;		number of buffer to execute
- */
 int execute_numbered_macro(int f, int n, int number)
 {
-	struct buffer *bp;			/* ptr to buffer to execute */
-	int status;				/* status return */
+	struct buffer *bp;
+	int status;
 	static char bufname[] = "*Macro xx*";
 
-	/* make the buffer name */
 	bufname[7] = '0' + (number / 10);
 	bufname[8] = '0' + (number % 10);
 
-	/* find the pointer to that buffer */
 	if ((bp = find_buffer(bufname, FALSE, 0)) == NULL) {
 		msg_printf("Macro not defined");
 		return FALSE;
 	}
 
-	/* and now execute it as asked */
 	while (n-- > 0)
 		if ((status = dobuf(bp)) != TRUE)
 			return status;
